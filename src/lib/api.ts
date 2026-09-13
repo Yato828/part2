@@ -1,5 +1,4 @@
 import { getJson } from "./http";
-import { isExtension } from "./env";
 import { fetchBlockNumberRpc, fetchBlocksRpc, fetchStatsRpc, fetchTxsRpc } from "./rpcFeed";
 
 export type RhDeployment = {
@@ -40,6 +39,7 @@ export type RhQuote = {
   liquidityUsd?: number;
   dex?: string;
   fdv?: number;
+  pairAddress?: string;
 };
 
 export type ChainStats = {
@@ -144,31 +144,28 @@ function quoteFromPair(pair: DexPair, symbol?: string): RhQuote {
     liquidityUsd: pair.liquidity?.usd,
     dex: pair.dexId,
     fdv: pair.fdv ?? pair.marketCap,
+    pairAddress: pair.pairAddress,
   };
 }
 
 async function assetsFromRegistry() {
-  const local = await getJson<{ assets: RhAsset[] }>("/registry.json", 8000);
+  const local = await getJson<{ assets: RhAsset[] }>("/registry.json", 4000);
   return (local.assets ?? []).filter((a) => a.deployments?.some((d) => d.chainId === 4663));
 }
 
 export async function fetchAssets() {
-  if (isExtension()) {
-    try {
-      const local = await assetsFromRegistry();
-      if (local.length) return local;
-    } catch {
-      /* packed registry missing */
-    }
+  try {
+    const local = await assetsFromRegistry();
+    if (local.length) return local;
+  } catch {
+    /* packed registry missing */
   }
   try {
-    const data = await getJson<{ assets: RhAsset[] }>("/rhj/assets", 2500);
-    const list = (data.assets ?? []).filter((a) => a.deployments?.some((d) => d.chainId === 4663));
-    if (list.length) return list;
+    const data = await getJson<{ assets: RhAsset[] }>("/rhj/assets", 1200);
+    return (data.assets ?? []).filter((a) => a.deployments?.some((d) => d.chainId === 4663));
   } catch {
-    /* geo-blocked in some regions */
+    return [];
   }
-  return assetsFromRegistry();
 }
 
 export async function fetchDexByAddress(address: string) {
@@ -239,7 +236,7 @@ export async function fetchCorpActions() {
 
 export async function fetchStats() {
   try {
-    return await getJson<ChainStats>("/chain/stats", 4000);
+    return await getJson<ChainStats>("/chain/stats", 2500);
   } catch {
     return fetchStatsRpc();
   }
@@ -247,7 +244,7 @@ export async function fetchStats() {
 
 export async function fetchTxs() {
   try {
-    return await getJson<ChainTx[]>("/chain/main-page/transactions", 4000);
+    return await getJson<ChainTx[]>("/chain/main-page/transactions", 2500);
   } catch {
     return fetchTxsRpc();
   }
@@ -255,7 +252,7 @@ export async function fetchTxs() {
 
 export async function fetchBlocks() {
   try {
-    return await getJson<ChainBlock[]>("/chain/main-page/blocks", 4000);
+    return await getJson<ChainBlock[]>("/chain/main-page/blocks", 2500);
   } catch {
     return fetchBlocksRpc();
   }
@@ -263,7 +260,7 @@ export async function fetchBlocks() {
 
 export async function fetchChainTokens() {
   try {
-    const data = await getJson<{ items: ChainToken[] }>("/chain/tokens?type=ERC-20");
+    const data = await getJson<{ items: ChainToken[] }>("/chain/tokens?type=ERC-20", 2200);
     if (data.items?.length) return data.items;
   } catch {
     /* cf */

@@ -1,25 +1,21 @@
 import { useEffect, useState } from "react";
+import { streamFable, toFableFacts } from "../lib/fable";
 import { briefIntel, type IntelInput } from "../lib/intel";
 
 export function HeroIntel({ compact, ...props }: IntelInput & { compact?: boolean }) {
   const brief = briefIntel(props);
-  const [typed, setTyped] = useState(compact ? brief.review : "");
+  const [review, setReview] = useState(brief.review);
 
   useEffect(() => {
-    if (compact) {
-      setTyped(brief.review);
-      return;
-    }
-    setTyped("");
-    let i = 0;
-    const text = brief.review;
-    const id = setInterval(() => {
-      i += 1;
-      setTyped(text.slice(0, i));
-      if (i >= text.length) clearInterval(id);
-    }, 16);
-    return () => clearInterval(id);
-  }, [brief.id, brief.review, props.symbol, compact]);
+    setReview(brief.review);
+    if (!props.armed) return;
+    const ac = new AbortController();
+    const facts = toFableFacts(props, brief);
+    void streamFable(facts, ac.signal, setReview).catch(() => {
+      /* keep local brief */
+    });
+    return () => ac.abort();
+  }, [brief.id, brief.review, props.symbol, props.armed, compact]);
 
   const tone = brief.id === "rug" || brief.id === "halt" || brief.id === "dead" ? "dn" : brief.id === "buy" || brief.id === "long" ? "up" : "";
 
@@ -48,7 +44,7 @@ export function HeroIntel({ compact, ...props }: IntelInput & { compact?: boolea
         ))}
       </div>
       <p className="intel-review">
-        {typed}
+        {review}
         <span className="block-caret" />
       </p>
     </div>

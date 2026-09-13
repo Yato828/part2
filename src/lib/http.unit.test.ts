@@ -17,5 +17,6 @@ describe("extension url map", () => {
     );
     expect(resolvePartUrl("/rpc", "ext")).toBe("https://rpc.mainnet.chain.robinhood.com/");
     expect(resolvePartUrl("/registry.json", "ext")).toBe("/registry.json");
+    expect(resolvePartUrl("/api/fable", "ext")).toMatch(/\/api\/fable$/);
   });
 });

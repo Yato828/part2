@@ -3,13 +3,14 @@ import react from "@vitejs/plugin-react";
 import { createReadStream, cpSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import webConfig from "./vite.config";
+import { fablePlugin, proxy } from "./vite.config";
 
 const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
     react(),
+    fablePlugin(),
     {
       name: "part-ext-index",
       configureServer(server) {
@@ -46,11 +47,11 @@ export default defineConfig({
   },
   server: {
     port: 4666,
-    proxy: webConfig.server?.proxy,
+    proxy,
   },
   preview: {
     port: 4666,
-    proxy: webConfig.preview?.proxy,
+    proxy,
   },
   build: {
     outDir: "dist-ext",

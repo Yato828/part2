@@ -9,8 +9,13 @@ const EXT_ROOT: Array<{ prefix: string; origin: string; strip: string; insert: s
   { prefix: "/rpc", origin: "https://rpc.mainnet.chain.robinhood.com", strip: "/rpc", insert: "" },
 ];
 
+const FABLE_ORIGIN = "https://part-woad.vercel.app";
+
 export function resolvePartUrl(url: string, shell: PartShell = partShell()) {
   if (!url.startsWith("/")) return url;
+  if (shell === "ext" && url.startsWith("/api/")) {
+    return import.meta.env.DEV ? url : FABLE_ORIGIN + url;
+  }
   if (shell !== "ext") return url;
   const hit = EXT_ROOT.find(
     (r) => url === r.prefix || url.startsWith(r.prefix + "/") || url.startsWith(r.prefix + "?")
@@ -31,7 +36,7 @@ const PRIVACY: Pick<RequestInit, "credentials" | "referrerPolicy"> = {
   referrerPolicy: "no-referrer",
 };
 
-export async function getJson<T>(url: string, ms = 15000, init?: RequestInit): Promise<T> {
+export async function getJson<T>(url: string, ms = 4000, init?: RequestInit): Promise<T> {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), ms);
   try {

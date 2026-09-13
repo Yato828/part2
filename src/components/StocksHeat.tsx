@@ -33,7 +33,7 @@ export function StocksHeat({
     return (
       <div className="heat">
         <div className="heat-strip">
-          <span>PULSE</span>
+          <span>STOCKS</span>
         </div>
         <div className="bubble-empty">Loading Robinhood stock tokens…</div>
       </div>

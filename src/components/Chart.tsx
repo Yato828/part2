@@ -1,23 +1,36 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchBestPool, fetchCandles, isPoolAddr, peekCandles, patchLastCandle, prefetchCandles, type Candle } from "../lib/axiom";
+import { fmtUsd } from "../lib/format";
 
 const IVS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
+
+function startIv(bornAt?: number): (typeof IVS)[number] {
+  if (bornAt && Date.now() - bornAt < 8 * 60 * 60 * 1000) return "1m";
+  return "15m";
+}
 
 export function Chart({
   pool,
   token,
   last,
+  bornAt,
 }: {
   pool?: string;
   token?: string;
   last?: number;
+  bornAt?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [iv, setIv] = useState<(typeof IVS)[number]>("15m");
+  const [iv, setIv] = useState<(typeof IVS)[number]>(() => startIv(bornAt));
   const [bars, setBars] = useState<Candle[]>([]);
   const [live, setLive] = useState(true);
   const hover = useRef<{ x: number; y: number } | null>(null);
   const view = useRef({ offset: 0, span: 96, drag: false, lastX: 0, moved: false });
+
+  useEffect(() => {
+    setIv(startIv(bornAt));
+    setBars([]);
+  }, [pool, token, bornAt]);
 
   useEffect(() => {
     view.current.offset = 0;
@@ -40,7 +53,14 @@ export function Chart({
         if (!p) return;
         const cached = peekCandles(p, iv);
         if (cached?.length && !stop) setBars(cached);
-        const rows = await fetchCandles(p, iv);
+        let rows = await fetchCandles(p, iv);
+        if (!stop && rows.length < 2 && iv !== "1m") {
+          const m1 = await fetchCandles(p, "1m");
+          if (m1.length > rows.length) {
+            rows = m1;
+            setIv("1m");
+          }
+        }
         if (!stop && rows.length) setBars(rows);
         window.setTimeout(() => {
           if (stop) return;
@@ -48,13 +68,13 @@ export function Chart({
             p,
             IVS.filter((x) => x !== iv)
           );
-        }, 800);
+        }, 80);
       } catch {
         /* keep last bars */
       }
     };
     void load();
-    const id = setInterval(() => void load(), 8000);
+    const id = setInterval(() => void load(), 4000);
     return () => {
       stop = true;
       clearInterval(id);
@@ -133,20 +153,21 @@ export function Chart({
         return;
       }
       const source = (isPoolAddr(pool) ? peekCandles(pool, iv) : undefined) ?? bars;
-      const real = source.filter((b) => b.h !== b.l || source.length > 2);
-      const all = patchLastCandle(real, last);
-      if (!all.length || (all.length < 2 && (!Number.isFinite(all[0]?.h) || all[0].h === all[0].l))) {
+      const all = patchLastCandle(source, last);
+      if (!all.length) {
         ctx.fillStyle = "rgba(243,234,215,0.45)";
         ctx.font = "12px 'Instrument Sans', sans-serif";
         ctx.fillText(pool || token ? "Fable 5.1 fetching candles…" : "Awaiting a market", 16, 24);
         raf = requestAnimationFrame(draw);
         return;
       }
-      const span = Math.max(12, Math.min(view.current.span, all.length));
-      const offset = Math.max(0, Math.min(Math.max(0, all.length - 12), view.current.offset));
+      const span = Math.max(1, Math.min(view.current.span, all.length));
+      const offset = Math.max(0, Math.min(Math.max(0, all.length - 1), view.current.offset));
       const end = all.length - offset;
       const start = Math.max(0, end - span);
       const data = all.slice(start, end);
+      const slots = Math.max(28, data.length);
+      const lead = slots - data.length;
 
       const volH = Math.floor(h * 0.22);
       const chartH = h - volH - 8;
@@ -167,9 +188,9 @@ export function Chart({
       const gap = 1.5;
       const right = 58;
       const left = 44;
-      const bw = Math.max(2.5, (w - left - right) / data.length - gap);
+      const bw = Math.max(2.5, (w - left - right) / slots - gap);
       const yAt = (v: number) => 10 + (1 - (v - min) / (max - min)) * (chartH - 20);
-      const xAt = (i: number) => left + i * (bw + gap);
+      const xAt = (i: number) => left + (i + lead) * (bw + gap);
 
       ctx.strokeStyle = "rgba(243,234,215,0.08)";
       ctx.lineWidth = 1;
@@ -181,7 +202,7 @@ export function Chart({
         ctx.stroke();
         ctx.fillStyle = "rgba(243,234,215,0.42)";
         ctx.font = "10px 'Instrument Sans', sans-serif";
-        const label = (max - ((max - min) * i) / 4).toPrecision(5);
+        const label = fmtUsd(max - ((max - min) * i) / 4, 4);
         ctx.textAlign = "right";
         ctx.fillText(label, w - 6, y + 3);
       }
@@ -219,7 +240,7 @@ export function Chart({
         ctx.lineTo(w - right + 8, y);
         ctx.stroke();
         ctx.setLineDash([]);
-        const tag = last!.toPrecision(5);
+        const tag = fmtUsd(last!, 4);
         ctx.font = "11px 'Instrument Sans', sans-serif";
         const tw = tag.length * 7 + 10;
         const lastOpen = data[data.length - 1]?.o ?? last!;
@@ -243,7 +264,10 @@ export function Chart({
 
       const hv = hover.current;
       if (hv && !view.current.drag) {
-        const i = Math.min(data.length - 1, Math.max(0, Math.floor((hv.x - left) / (bw + gap))));
+        const i = Math.min(
+          data.length - 1,
+          Math.max(0, Math.floor((hv.x - left) / (bw + gap) - lead))
+        );
         const b = data[i];
         if (b) {
           ctx.strokeStyle = "rgba(243,234,215,0.28)";
@@ -251,7 +275,7 @@ export function Chart({
           ctx.moveTo(xAt(i) + bw / 2, 0);
           ctx.lineTo(xAt(i) + bw / 2, h);
           ctx.stroke();
-          const label = `${new Date(b.t).toISOString().slice(0, 16).replace("T", " ")}  O ${b.o.toPrecision(5)}  H ${b.h.toPrecision(5)}  L ${b.l.toPrecision(5)}  C ${b.c.toPrecision(5)}`;
+          const label = `${new Date(b.t).toISOString().slice(0, 16).replace("T", " ")}  O ${fmtUsd(b.o, 4)}  H ${fmtUsd(b.h, 4)}  L ${fmtUsd(b.l, 4)}  C ${fmtUsd(b.c, 4)}`;
           ctx.fillStyle = "#17150f";
           ctx.fillRect(48, 8, Math.min(w - 60, label.length * 7), 16);
           ctx.fillStyle = "#f3ead7";

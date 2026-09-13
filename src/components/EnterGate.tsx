@@ -9,7 +9,7 @@ export function EnterGate({
 }) {
   useEffect(() => {
     if (!playing) return;
-    const id = window.setTimeout(onDone, 2100);
+    const id = window.setTimeout(onDone, 900);
     return () => window.clearTimeout(id);
   }, [playing, onDone]);
 

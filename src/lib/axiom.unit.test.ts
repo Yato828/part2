@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { bucketCandles, isPoolAddr, onlyRh, paprikaRows, parseBarTime, parsePaprikaOhlcv, swapsToCandles } from "./axiom";
+import {
+  ageLabel,
+  bucketCandles,
+  filterPulseCoins,
+  isPoolAddr,
+  isQuoteToken,
+  mergePulseCoins,
+  onlyRh,
+  paprikaRows,
+  paprikaPoolRows,
+  parseBarTime,
+  parsePaprikaOhlcv,
+  swapsToCandles,
+  type AxiomCoin,
+} from "./axiom";
 
 describe("Robinhood-only filter", () => {
   const nvda = {
@@ -27,10 +41,11 @@ describe("Robinhood-only filter", () => {
 });
 
 describe("pool addresses and paprika candles", () => {
-  it("accepts 20-byte pools and rejects bytes32 ids", () => {
+  it("accepts Uniswap v3 20-byte pools and v4 bytes32 ids", () => {
     expect(isPoolAddr("0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3")).toBe(true);
-    expect(isPoolAddr("0xd434e890610315a1922bc3f36dba2a3906cfff336c1af2ab821681a9db8fe7a0")).toBe(false);
+    expect(isPoolAddr("0xd434e890610315a1922bc3f36dba2a3906cfff336c1af2ab821681a9db8fe7a0")).toBe(true);
     expect(isPoolAddr("")).toBe(false);
+    expect(isPoolAddr("0x1234")).toBe(false);
   });
 
   it("parses paprika ohlcv rows", () => {
@@ -86,5 +101,112 @@ describe("pool addresses and paprika candles", () => {
     expect(out[0].c).toBe(12);
     expect(out[0].h).toBe(12);
     expect(out[0].v).toBe(3);
+  });
+
+  it("uses token1 price when token0 is WETH", () => {
+    const out = swapsToCandles(
+      [
+        {
+          created_at: "2026-09-07T00:00:10Z",
+          token_0: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+          price_0: 3000,
+          price_1: 0.004,
+          volume_1: 5,
+        },
+      ],
+      60_000
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].c).toBe(0.004);
+    expect(out[0].v).toBe(5);
+  });
+});
+
+const coin = (partial: Partial<AxiomCoin> & Pick<AxiomCoin, "symbol" | "address">): AxiomCoin => ({
+  name: partial.symbol,
+  pairAddress: "",
+  chainId: "robinhood",
+  dex: "uniswap",
+  priceUsd: 0,
+  ...partial,
+});
+
+describe("pulse launches", () => {
+  it("ages launches in seconds, minutes, hours", () => {
+    const now = Date.parse("2026-09-13T12:00:00Z");
+    expect(ageLabel(now - 12_000, now)).toBe("12s");
+    expect(ageLabel(now - 120_000, now)).toBe("2m");
+    expect(ageLabel(now - 3 * 3600_000, now)).toBe("3h");
+  });
+
+  it("drops WETH, USDG, and registry stock tokens", () => {
+    const out = filterPulseCoins(
+      [
+        coin({ symbol: "NVDA", address: "0x1111111111111111111111111111111111111111" }),
+        coin({ symbol: "PEPE", address: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73" }),
+        coin({ symbol: "WETH", address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
+        coin({ symbol: "FROG", address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", createdAt: 2 }),
+        coin({ symbol: "HOOD", address: "0xcccccccccccccccccccccccccccccccccccccccc" }),
+      ],
+      ["NVDA", "HOOD"],
+      ["0xdddddddddddddddddddddddddddddddddddddddd"]
+    );
+    expect(out.map((c) => c.symbol)).toEqual(["FROG"]);
+  });
+
+  it("prefers a real ticker over a paprika hex stub", () => {
+    const stub = coin({
+      symbol: "CCE765",
+      address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      pairAddress: "0xd434e890610315a1922bc3f36dba2a3906cfff336c1af2ab821681a9db8fe7a0",
+      createdAt: 90,
+    });
+    const named = coin({
+      symbol: "FROG",
+      address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      pairAddress: "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3",
+      createdAt: 40,
+      priceUsd: 1.2,
+    });
+    const out = mergePulseCoins([stub, named]);
+    expect(out[0].symbol).toBe("FROG");
+    expect(out[0].createdAt).toBe(90);
+    expect(out[0].pairAddress).toBe("0xd434e890610315a1922bc3f36dba2a3906cfff336c1af2ab821681a9db8fe7a0");
+  });
+
+  it("keeps the newest 20-byte pool when merging the same token", () => {
+    const a = coin({
+      symbol: "0xABCD",
+      address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      pairAddress: "",
+      createdAt: 10,
+    });
+    const b = coin({
+      symbol: "FROG",
+      address: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      pairAddress: "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3",
+      createdAt: 40,
+      priceUsd: 1.2,
+    });
+    const out = mergePulseCoins([a, b]);
+    expect(out).toHaveLength(1);
+    expect(out[0].symbol).toBe("FROG");
+    expect(out[0].pairAddress).toBe("0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3");
+    expect(out[0].createdAt).toBe(40);
+  });
+
+  it("reads paprika pool lists from pools or results", () => {
+    expect(
+      paprikaPoolRows({
+        pools: [{ id: "0x1", tokens: [{ id: "0xabc", symbol: "FROG" }] }],
+      })
+    ).toHaveLength(1);
+    expect(paprikaPoolRows({ results: [{ id: "0x2" }] })).toHaveLength(1);
+    expect(paprikaPoolRows([])).toEqual([]);
+  });
+
+  it("treats native ETH as a quote asset", () => {
+    expect(isQuoteToken("0x0000000000000000000000000000000000000000")).toBe(true);
+    expect(isQuoteToken("0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73")).toBe(true);
   });
 });

@@ -1,27 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import App from "../App";
+import { SiteCursor } from "./Cursor";
 import { EnterGate } from "./EnterGate";
 import { Landing } from "./Landing";
 import { SiteSheet } from "./SiteSheet";
 
 export function Experience() {
-  const [progress, setProgress] = useState(0);
-  const [active, setActive] = useState(false);
+  const [desk, setDesk] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [sheet, setSheet] = useState<"docs" | "ext" | null>(null);
   const [gate, setGate] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => {
-      if (gate) return;
-      const max = Math.max(1, window.innerHeight);
-      const p = Math.min(1, Math.max(0, window.scrollY / max));
-      setProgress(p);
-      if (p > 0.42) setActive(true);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [gate]);
 
   useEffect(() => {
     if (!sheet) return;
@@ -34,27 +22,34 @@ export function Experience() {
 
   const enter = () => {
     setSheet(null);
-    setActive(true);
+    setArmed(true);
     setGate(true);
     document.documentElement.style.overflow = "hidden";
   };
 
   const finishGate = useCallback(() => {
-    window.scrollTo({ top: window.innerHeight, behavior: "auto" });
-    setProgress(1);
     setGate(false);
-    document.documentElement.style.overflow = "";
+    setDesk(true);
   }, []);
 
+  const leave = () => {
+    setDesk(false);
+    setGate(false);
+    document.documentElement.style.overflow = "";
+    window.scrollTo({ top: 0, behavior: "auto" });
+  };
+
   return (
-    <div className="site">
-      <section className="land-lock">
-        <Landing onEnter={enter} onOpen={setSheet} progress={progress} />
-        <div className="land-veil" style={{ opacity: Math.min(1, progress * 1.15) }} />
-      </section>
-      <section className="term-lock" aria-label="PART terminal">
-        <App active={active} lit={progress > 0.88} />
-      </section>
+    <div className={`site${desk ? " is-desk" : ""}`}>
+      {!desk && <SiteCursor />}
+      <div className="site-hold" hidden={desk} {...(desk ? { inert: true } : {})}>
+        <Landing onEnter={enter} onOpen={setSheet} />
+      </div>
+      {armed && (
+        <div className={`term-overlay${desk && !gate ? " on" : ""}`} aria-hidden={!desk}>
+          <App active={armed} lit={desk} onLeave={leave} />
+        </div>
+      )}
       <SiteSheet kind={sheet} onClose={() => setSheet(null)} />
       <EnterGate playing={gate} onDone={finishGate} />
     </div>

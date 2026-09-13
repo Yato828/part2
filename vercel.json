@@ -1,0 +1,10 @@
+{
+  "rewrites": [
+    { "source": "/paprika/:path*", "destination": "https://api.dexpaprika.com/:path*" },
+    { "source": "/dex/:path*", "destination": "https://api.dexscreener.com/:path*" },
+    { "source": "/gecko/:path*", "destination": "https://api.geckoterminal.com/api/v2/:path*" },
+    { "source": "/chain/:path*", "destination": "https://robinhoodchain.blockscout.com/api/v2/:path*" },
+    { "source": "/rhj/:path*", "destination": "https://api.robinhood.com/:path*" },
+    { "source": "/rpc", "destination": "https://rpc.mainnet.chain.robinhood.com/" }
+  ]
+}

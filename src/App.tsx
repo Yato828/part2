@@ -4,12 +4,15 @@ import { ChainMosaic } from "./components/ChainMosaic";
 import { Chart } from "./components/Chart";
 import { FxLayer } from "./components/Fx";
 import { HeroIntel } from "./components/HeroIntel";
+import { PulseHeat } from "./components/PulseHeat";
 import { StocksHeat } from "./components/StocksHeat";
 import { WalletChip, WalletSwap } from "./components/WalletSwap";
 import {
   axiomUrl,
   fetchAxiomLive,
+  fetchPulseLaunches,
   fetchRhCoinByAddress,
+  isPoolAddr,
   prefetchCandles,
   searchAxioms,
   type AxiomCoin,
@@ -41,19 +44,23 @@ import { fmtInt, fmtQty, fmtUsd, mid, shortAddr } from "./lib/format";
 
 type Log = { t: string; s: string; k?: "ok" | "err" };
 
-type Pane = "STOCKS" | "CHAIN" | "BUBBLE" | "FLOW" | "SWAP";
+type Pane = "PULSE" | "STOCKS" | "CHAIN" | "BUBBLE" | "FLOW" | "SWAP";
 
 export default function App({
   active = true,
   lit = false,
   mode = "desk",
+  onLeave,
 }: {
   active?: boolean;
   lit?: boolean;
   mode?: "desk" | "popup";
+  onLeave?: () => void;
 }) {
   const compact = mode === "popup";
   const [tab, setTab] = useState<Pane>("STOCKS");
+  const [launches, setLaunches] = useState<AxiomCoin[]>([]);
+  const [pulseLoading, setPulseLoading] = useState(true);
   const [assets, setAssets] = useState<RhAsset[]>([]);
   const [chainTokens, setChainTokens] = useState<ChainToken[]>([]);
   const [quotes, setQuotes] = useState<Map<string, RhQuote>>(new Map());
@@ -118,47 +125,43 @@ export default function App({
   useEffect(() => {
     if (!active) return;
     let live = true;
-    (async () => {
-      const settled = await Promise.allSettled([
-        fetchAssets(),
-        fetchStats(),
-        fetchTxs(),
-        fetchBlocks(),
-        fetchChainTokens(),
-        fetchCorpActions(),
-      ]);
-      if (!live) return;
-      const val = <T,>(i: number, fallback: T) =>
-        settled[i].status === "fulfilled" ? (settled[i] as PromiseFulfilledResult<T>).value : fallback;
-      const a = val<Awaited<ReturnType<typeof fetchAssets>>>(0, []);
-      const s = val<Awaited<ReturnType<typeof fetchStats>> | null>(1, null);
-      const t = val<Awaited<ReturnType<typeof fetchTxs>>>(2, []);
-      const b = val<Awaited<ReturnType<typeof fetchBlocks>>>(3, []);
-      const ct = val<Awaited<ReturnType<typeof fetchChainTokens>>>(4, []);
-      const ca = val<Awaited<ReturnType<typeof fetchCorpActions>>>(5, { corpActions: [] });
-      setAssets(a);
-      setStats(s);
-      setTxs(t);
-      setBlocks(b);
-      setChainTokens(ct);
-      const want = DEFAULT_WATCH.filter((x) => a.some((z) => z.tokenSymbol === x));
-      const priced = (want.length ? want : a.slice(0, 12).map((z) => z.tokenSymbol))
-        .map((sym) => {
-          const hit = a.find((z) => z.tokenSymbol === sym);
-          const address = hit ? rhAddress(hit) : undefined;
-          return hit && address ? { symbol: sym, address } : null;
-        })
-        .filter((x): x is { symbol: string; address: string } => Boolean(x));
+    void (async () => {
       try {
+        const a = await fetchAssets();
+        if (!live) return;
+        setAssets(a);
+        const want = DEFAULT_WATCH.filter((x) => a.some((z) => z.tokenSymbol === x));
+        const priced = (want.length ? want : a.slice(0, 12).map((z) => z.tokenSymbol))
+          .map((sym) => {
+            const hit = a.find((z) => z.tokenSymbol === sym);
+            const address = hit ? rhAddress(hit) : undefined;
+            return hit && address ? { symbol: sym, address } : null;
+          })
+          .filter((x): x is { symbol: string; address: string } => Boolean(x));
         const q = await fetchPrices(priced);
         if (!live) return;
         setQuotes(q);
-      } catch {
-        /* quotes stay empty */
+        q.forEach((quote) => {
+          if (quote.pairAddress) prefetchCandles(quote.pairAddress, ["15m", "1m"]);
+        });
+        log("NET", `registry ${a.length} RH tokens`, "ok");
+      } catch (e) {
+        if (live) log("ERR", String(e), "err");
       }
-      setCorpActions(ca.corpActions ?? []);
-      log("NET", `registry ${a.length} RH tokens · ${ct.length} chain ERC-20`, "ok");
     })();
+    void Promise.allSettled([fetchStats(), fetchTxs(), fetchBlocks(), fetchChainTokens(), fetchCorpActions()]).then(
+      (settled) => {
+        if (!live) return;
+        const val = <T,>(i: number, fallback: T) =>
+          settled[i].status === "fulfilled" ? (settled[i] as PromiseFulfilledResult<T>).value : fallback;
+        setStats(val(0, null));
+        setTxs(val(1, []));
+        setBlocks(val(2, []));
+        setChainTokens(val(3, []));
+        const ca = val(4, { corpActions: [] as Array<{ tokenSymbol: string; type: string; status: string }> });
+        setCorpActions(ca.corpActions ?? []);
+      }
+    );
     return () => {
       live = false;
     };
@@ -174,7 +177,7 @@ export default function App({
       if (settled[3].status === "fulfilled") setBlockNo(settled[3].value);
     };
     tick();
-    const id = setInterval(tick, 8000);
+    const id = setInterval(tick, 5000);
     return () => clearInterval(id);
   }, [active]);
 
@@ -216,6 +219,32 @@ export default function App({
       });
     });
   }, [active, tab, assets]);
+
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    const run = async () => {
+      try {
+        const stockSymbols = assets.length ? assets.map((a) => a.tokenSymbol) : DEFAULT_WATCH;
+        const stockAddresses = assets
+          .map((a) => rhAddress(a))
+          .filter((x): x is string => Boolean(x));
+        const rows = await fetchPulseLaunches({ stockSymbols, stockAddresses });
+        if (!live) return;
+        setLaunches(rows);
+      } catch {
+        /* keep last pulse */
+      } finally {
+        if (live) setPulseLoading(false);
+      }
+    };
+    void run();
+    const id = setInterval(run, 10000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+  }, [active, assets]);
 
   useEffect(() => {
     if (!active || !symbol) return;
@@ -318,7 +347,7 @@ export default function App({
           if (live) log("ERR", String(e), "err");
         }
       })();
-    }, 80);
+    }, 24);
     return () => {
       live = false;
       clearTimeout(t);
@@ -351,16 +380,29 @@ export default function App({
     setSymbol(coin.symbol.toUpperCase());
     setQuery(coin.symbol);
     setOmniOn(false);
-    if (coin.pairAddress) prefetchCandles(coin.pairAddress);
+    const ivs =
+      coin.createdAt && Date.now() - coin.createdAt < 8 * 3600_000 ? ["1m", "5m", "15m"] : ["15m"];
+    if (isPoolAddr(coin.pairAddress)) prefetchCandles(coin.pairAddress, ivs);
     sfx.select();
     log("AXM", `${coin.symbol}  ${coin.chainId}  ${coin.name}`, "ok");
     if (coin.address) {
       void fetchRhCoinByAddress(coin.address).then((c) => {
         if (!c) return;
-        setAxiomCoin(c);
-        prefetchCandles(c.pairAddress);
+        const pool = isPoolAddr(coin.pairAddress) ? coin.pairAddress : c.pairAddress;
+        const next = {
+          ...c,
+          pairAddress: pool,
+          createdAt: Math.max(coin.createdAt ?? 0, c.createdAt ?? 0) || c.createdAt || coin.createdAt,
+        };
+        setAxiomCoin(next);
+        if (isPoolAddr(next.pairAddress)) prefetchCandles(next.pairAddress, ivs);
       });
     }
+  };
+
+  const pickPulse = (coin: AxiomCoin) => {
+    setTab("PULSE");
+    selectAxiom(coin);
   };
 
   const select = (sym: string, source: "STOCKS" | "CHAIN" | "BUBBLE" = "STOCKS") => {
@@ -370,14 +412,31 @@ export default function App({
     sfx.select();
     log("SEL", `${source} ${sym.toUpperCase()}`, "ok");
     const a = assetMap.get(sym.toUpperCase());
+    const q = quotes.get(sym.toUpperCase());
     const address = a
       ? rhAddress(a)
       : chainTokens.find((t) => t.symbol?.toUpperCase() === sym.toUpperCase())?.address_hash;
+    if (address || q?.pairAddress) {
+      setAxiomCoin({
+        symbol: sym.toUpperCase(),
+        name: a?.tokenName ?? sym.toUpperCase(),
+        address: address ?? "",
+        pairAddress: q?.pairAddress ?? "",
+        chainId: "robinhood",
+        dex: q?.dex ?? "uniswap",
+        logo: a?.logoUrl,
+        priceUsd: Number.isFinite(mid(q?.bid, q?.ask)) ? mid(q?.bid, q?.ask) : 0,
+        change24h: q?.change24h,
+        liquidityUsd: q?.liquidityUsd,
+        volume24h: q ? Number(q.dailyTradingVolume) : undefined,
+      });
+      if (q?.pairAddress) prefetchCandles(q.pairAddress, ["1m", "15m"]);
+    }
     if (address) {
       void fetchRhCoinByAddress(address).then((c) => {
         if (c) {
           setAxiomCoin(c);
-          prefetchCandles(c.pairAddress);
+          prefetchCandles(c.pairAddress, ["1m", "15m"]);
         }
       });
     }
@@ -407,7 +466,7 @@ export default function App({
         autoCapitalize="off"
         spellCheck={false}
         onFocus={() => setOmniOn(true)}
-        onBlur={() => setTimeout(() => setOmniOn(false), 180)}
+        onBlur={() => setTimeout(() => setOmniOn(false), 80)}
         onChange={(e) => {
           setQuery(e.target.value);
           setOmniOn(true);
@@ -566,7 +625,12 @@ export default function App({
           </div>
           <div className="compact-chart">
             {armed ? (
-              <Chart pool={axiomCoin?.pairAddress} token={addr} last={Number.isFinite(px) ? px : undefined} />
+              <Chart
+                pool={axiomCoin?.pairAddress}
+                token={addr}
+                last={Number.isFinite(px) ? px : undefined}
+                bornAt={axiomCoin?.createdAt}
+              />
             ) : (
               <div className="await-chart">Search a market</div>
             )}
@@ -584,6 +648,9 @@ export default function App({
           />
           <div className="tabs">
             <button className={tab === "STOCKS" ? "on" : ""} onClick={() => setTab("STOCKS")}>
+              Stocks
+            </button>
+            <button className={tab === "PULSE" ? "on" : ""} onClick={() => setTab("PULSE")}>
               Pulse
             </button>
             <button className={tab === "CHAIN" ? "on" : ""} onClick={() => setTab("CHAIN")}>
@@ -600,6 +667,7 @@ export default function App({
             </button>
           </div>
           <div className="compact-pane">
+            {tab === "PULSE" && <PulseHeat coins={launches} loading={pulseLoading} onPick={pickPulse} />}
             {tab === "STOCKS" && (
               <StocksHeat assets={assets} quotes={quotes} corps={corpActions} onPick={(s) => select(s, "STOCKS")} />
             )}
@@ -678,6 +746,11 @@ export default function App({
               <i /> Live
             </span>
             <WalletChip />
+            {onLeave && (
+              <button type="button" className="leave-desk" onClick={onLeave}>
+                House
+              </button>
+            )}
           </div>
         </header>
 
@@ -790,6 +863,7 @@ export default function App({
                   pool={axiomCoin?.pairAddress}
                   token={addr}
                   last={Number.isFinite(px) ? px : undefined}
+                  bornAt={axiomCoin?.createdAt}
                 />
               ) : (
                 <div className="await-chart">Fable 5.1 is ready. Search a market to open the book</div>
@@ -810,6 +884,9 @@ export default function App({
               <div className="floor-side">
                 <div className="tabs">
                   <button className={tab === "STOCKS" ? "on" : ""} onClick={() => setTab("STOCKS")}>
+                    Stocks
+                  </button>
+                  <button className={tab === "PULSE" ? "on" : ""} onClick={() => setTab("PULSE")}>
                     Pulse
                   </button>
                   <button className={tab === "CHAIN" ? "on" : ""} onClick={() => setTab("CHAIN")}>
@@ -826,6 +903,7 @@ export default function App({
                     symbol={armed ? symbol : undefined}
                   />
                 )}
+                {tab === "PULSE" && <PulseHeat coins={launches} loading={pulseLoading} onPick={pickPulse} />}
                 {tab === "STOCKS" && (
                   <StocksHeat assets={assets} quotes={quotes} corps={corpActions} onPick={(s) => select(s, "STOCKS")} />
                 )}

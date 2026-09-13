@@ -33,24 +33,18 @@ function DocsBody() {
   return (
     <div className="sheet-body">
       <p className="sheet-lead">
-        PART is a trading terminal on <b>Fable 5.1</b> — the fastest and most accurate read of
-        Robinhood Chain. It is a terminal, not an agent. It watches the book, scores the tape,
-        and stays quiet until you pick a market.
+        Terminal for Robinhood Chain. <b>Fable 5.1</b> reads the book. Not an agent.
       </p>
 
       <section>
         <h3>Enter</h3>
-        <p>
-          The highway is the first frame. Scroll, or press Enter Terminal. Fable 5.1 arms as the
-          desk comes into view.
-        </p>
+        <p>Highway, tape, then he watches. Press Enter Terminal for the desk.</p>
       </section>
 
       <section>
         <h3>Search</h3>
         <p>
-          Left rail. Type a name, ticker, or <code>0x</code> contract. The chart stays closed
-          until you choose a hit. Nothing is auto-selected.
+          Name, ticker, or <code>0x</code>. Chart opens only after you pick a hit.
         </p>
       </section>
 
@@ -58,38 +52,35 @@ function DocsBody() {
         <h3>Desk</h3>
         <ul>
           <li>
-            <b>Pulse</b> — heat of Robinhood stock tokens. Click to arm.
+            <b>Pulse</b> — new launches. Age, liq, vol. Stocks stay out.
           </li>
           <li>
-            <b>Blocks</b> — recent chain tiles, gas, new ERC-20s.
+            <b>Stocks</b> — RH stock tokens, halts, corp actions.
           </li>
           <li>
-            <b>Bubble Map</b> — wallets as stippled nodes, webbed by flow. Drag to pull, empty
-            drag to orbit, wheel to zoom.
+            <b>Blocks</b> — tiles, gas, new ERC-20s.
           </li>
           <li>
-            <b>Swap</b> — ETH into the armed token on Uniswap v3. MetaMask or Rabby, chain 4663.
+            <b>Bubble Map</b> — wallet graph. Drag a node, wheel to zoom.
           </li>
           <li>
-            <b>Flow</b> — live tape. Click a wallet or hash to open the explorer.
+            <b>Swap</b> — ETH → token, Uniswap v3, chain 4663.
+          </li>
+          <li>
+            <b>Flow</b> — tape. Click a wallet or hash.
           </li>
         </ul>
       </section>
 
       <section>
         <h3>Fable 5.1</h3>
-        <p>
-          The kernel behind every score, candle, and brief. Built for speed and precision — the
-          fastest and most accurate terminal on this chain. Not a chatbot. A read of liquidity,
-          volume, age, and tape, then a clear verdict.
-        </p>
+        <p>Scores, candles, briefs. Liquidity, volume, age, tape — then a verdict.</p>
       </section>
 
       <section>
         <h3>Chain</h3>
         <p>
-          Robinhood Chain only. EIP-155 <b>4663</b>. Quotes and swaps stay on this network. No
-          other chains.
+          EIP-155 <b>4663</b> only. Quotes and swaps stay here.
         </p>
       </section>
     </div>
@@ -100,9 +91,7 @@ function ExtBody() {
   return (
     <div className="sheet-body">
       <p className="sheet-lead">
-        PART is not listed in the Chrome Web Store. You install it from an archive, like a local
-        tool. The popup is only the terminal — search, candles, pulse, blocks, map, tape, swap —
-        in a 400×580 window that holds its layout.
+        Not in the Chrome Web Store. Load the archive. Popup is the terminal, 400×580.
       </p>
 
       <a className="sheet-dl" href="/part-ext.zip" download="part-ext.zip">

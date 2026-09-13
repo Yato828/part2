@@ -2,8 +2,5 @@ node_modules
 dist
 dist-ext
 .tmp
-.DS_Store
-*.local
 .env
 .env.*
-.vercel

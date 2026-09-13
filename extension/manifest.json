@@ -27,10 +27,11 @@
     "https://robinhoodchain.blockscout.com/*",
     "https://api.robinhood.com/*",
     "https://rpc.mainnet.chain.robinhood.com/*",
+    "https://part-woad.vercel.app/*",
     "https://fonts.googleapis.com/*",
     "https://fonts.gstatic.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://api.dexscreener.com https://api.geckoterminal.com https://api.dexpaprika.com https://robinhoodchain.blockscout.com https://api.robinhood.com https://rpc.mainnet.chain.robinhood.com https://fonts.googleapis.com https://fonts.gstatic.com; base-uri 'none'; form-action 'none'"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://api.dexscreener.com https://api.geckoterminal.com https://api.dexpaprika.com https://robinhoodchain.blockscout.com https://api.robinhood.com https://rpc.mainnet.chain.robinhood.com https://part-woad.vercel.app https://fonts.googleapis.com https://fonts.gstatic.com; base-uri 'none'; form-action 'none'"
   }
 }
