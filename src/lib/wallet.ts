@@ -1,217 +1,146 @@
 import { useEffect, useState } from "react";
-import { CHAIN_ID, CHAIN_NAME, EXPLORER, RPC } from "./const";
-import { isExtension } from "./env";
-import { extensionWalletProvider } from "./walletBridge";
+import { getWallets } from "@wallet-standard/app";
+import type { Wallet, WalletAccount } from "@wallet-standard/base";
+import type { StandardConnectFeature, StandardDisconnectFeature } from "@wallet-standard/features";
+import type { SolanaSignAndSendTransactionFeature } from "@solana/wallet-standard-features";
+import type { VersionedTransaction } from "@solana/web3.js";
+import { rpc } from "./rpcFeed";
 
-export const RH_CHAIN = {
-  chainId: "0x" + CHAIN_ID.toString(16),
-  chainName: CHAIN_NAME,
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: [RPC],
-  blockExplorerUrls: [EXPLORER],
+const MAINNET = "solana:mainnet";
+export type SolProvider = {
+  publicKey?: { toString(): string } | null;
+  connect(): Promise<{ publicKey: { toString(): string } }>;
+  disconnect(): Promise<void>;
+  signAndSendTransaction(tx: VersionedTransaction): Promise<{ signature: string } | string>;
+  on?(event: string, fn: (arg?: { toString(): string } | null) => void): void;
 };
+export type InjectedWallet = { rdns: string; name: string; provider: SolProvider };
+type Snap = { wallets: InjectedWallet[]; account: string; walletName: string; bal: number | null };
+let snap: Snap = { wallets: [], account: "", walletName: "", bal: null };
+let selected: SolProvider | null = null;
+const listeners = new Set<() => void>();
+const bound = new WeakSet<SolProvider>();
+const standardAdapters = new WeakMap<Wallet, SolProvider>();
 
-export type Eth = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-  on?: (ev: string, cb: (...a: unknown[]) => void) => void;
-  removeListener?: (ev: string, cb: (...a: unknown[]) => void) => void;
-  isMetaMask?: boolean;
-  isRabby?: boolean;
-};
-
-export type InjectedWallet = {
-  rdns: string;
-  name: string;
-  icon?: string;
-  provider: Eth;
-};
-
-type Snap = {
-  wallets: InjectedWallet[];
-  account: string;
-  walletName: string;
-  chain: string;
-  bal: bigint;
-};
-
-let selected: Eth | null = null;
-let snap: Snap = { wallets: [], account: "", walletName: "", chain: "", bal: 0n };
-const subs = new Set<() => void>();
-let discoveryOn = false;
-
-function emit() {
-  snap = { ...snap, wallets: [...snap.wallets] };
-  subs.forEach((fn) => fn());
-}
-
-function upsertWallet(w: InjectedWallet) {
-  const i = snap.wallets.findIndex((x) => x.rdns === w.rdns);
-  if (i >= 0) snap.wallets[i] = w;
-  else snap.wallets.push(w);
-}
-
-function fallbackFromWindow() {
-  const eth = (window as unknown as { ethereum?: Eth & { providers?: Eth[] } }).ethereum;
-  if (!eth) return;
-  const list = eth.providers?.length ? eth.providers : [eth];
-  for (const p of list) {
-    if (p.isRabby) upsertWallet({ rdns: "io.rabby", name: "Rabby Wallet", provider: p });
-    else if (p.isMetaMask) upsertWallet({ rdns: "io.metamask", name: "MetaMask", provider: p });
-    else upsertWallet({ rdns: "injected", name: "Wallet", provider: p });
-  }
-}
-
-export function bootWalletDiscovery() {
-  if (discoveryOn || typeof window === "undefined") return;
-  discoveryOn = true;
-  window.addEventListener("eip6963:announceProvider", ((e: Event) => {
-    const { info, provider } = (e as CustomEvent<{ info: { rdns: string; name: string; icon: string }; provider: Eth }>).detail;
-    upsertWallet({ rdns: info.rdns, name: info.name, icon: info.icon, provider });
-    emit();
-  }) as EventListener);
-  window.dispatchEvent(new Event("eip6963:requestProvider"));
-  fallbackFromWindow();
-  emit();
-}
-
-export function getEth(): Eth | null {
-  return selected ?? snap.wallets[0]?.provider ?? (window as unknown as { ethereum?: Eth }).ethereum ?? (isExtension() ? (extensionWalletProvider() as Eth | null) : null);
-}
-
-export function subscribeWallet(fn: () => void) {
-  subs.add(fn);
-  return () => {
-    subs.delete(fn);
-  };
-}
-
-export function walletSnap() {
-  return snap;
-}
-
-async function refresh(acc: string, eth: Eth) {
-  const [hex, id] = await Promise.all([
-    eth.request({ method: "eth_getBalance", params: [acc, "latest"] }) as Promise<string>,
-    eth.request({ method: "eth_chainId" }) as Promise<string>,
-  ]);
-  snap.bal = BigInt(hex);
-  snap.chain = id;
-  snap.account = acc;
-  emit();
-}
-
-const bound = new WeakSet<Eth>();
-
-function bindProvider(eth: Eth) {
-  if (bound.has(eth)) return;
-  bound.add(eth);
-  eth.on?.("accountsChanged", (accs: unknown) => {
-    const list = accs as string[];
-    snap.account = list[0] ?? "";
-    if (list[0]) void refresh(list[0], eth);
-    else emit();
-  });
-  eth.on?.("chainChanged", (id: unknown) => {
-    snap.chain = String(id);
-    emit();
-  });
-}
-
-export async function ensureRobinhood(eth = getEth()) {
-  if (!eth) throw new Error("wallet not found — install MetaMask or Rabby");
-  try {
-    await eth.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: RH_CHAIN.chainId }],
-    });
-  } catch (e) {
-    const err = e as { code?: number };
-    if (err.code === 4902) {
-      await eth.request({ method: "wallet_addEthereumChain", params: [RH_CHAIN] });
-      await eth.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: RH_CHAIN.chainId }],
-      });
-      return;
+function base58(bytes: Uint8Array) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] << 8;
+      digits[i] = carry % 58;
+      carry = Math.floor(carry / 58);
     }
-    throw e;
+    while (carry) { digits.push(carry % 58); carry = Math.floor(carry / 58); }
   }
+  for (let i = 0; i < bytes.length - 1 && bytes[i] === 0; i++) digits.push(0);
+  return digits.reverse().map((d) => alphabet[d]).join("");
 }
 
+function standardProvider(wallet: Wallet): SolProvider | null {
+  const cached = standardAdapters.get(wallet);
+  if (cached) return cached;
+  const features = wallet.features as Wallet["features"] & StandardConnectFeature &
+    StandardDisconnectFeature & SolanaSignAndSendTransactionFeature;
+  if (!features["standard:connect"]?.connect ||
+      !features["solana:signAndSendTransaction"]?.signAndSendTransaction) return null;
+  let account: WalletAccount | undefined = wallet.accounts.find((a) => a.chains.includes(MAINNET));
+  const provider: SolProvider = {
+    get publicKey() { return account ? { toString: () => account!.address } : null; },
+    async connect() {
+      const result = await features["standard:connect"].connect();
+      account = result.accounts.find((a) => a.chains.includes(MAINNET));
+      if (!account) throw new Error(`${wallet.name} has no Solana mainnet account.`);
+      return { publicKey: { toString: () => account!.address } };
+    },
+    async disconnect() {
+      await features["standard:disconnect"]?.disconnect?.();
+      account = undefined;
+    },
+    async signAndSendTransaction(tx) {
+      if (!account) throw new Error("Wallet account is no longer connected.");
+      const [result] = await features["solana:signAndSendTransaction"].signAndSendTransaction({
+        account, chain: MAINNET, transaction: tx.serialize(),
+        options: { preflightCommitment: "confirmed", maxRetries: 3 },
+      });
+      if (!result?.signature) throw new Error("Wallet returned no transaction signature.");
+      return { signature: base58(result.signature) };
+    },
+  };
+  standardAdapters.set(wallet, provider);
+  return provider;
+}
+
+function emit() { snap = { ...snap }; listeners.forEach((fn) => fn()); }
+export function discoverWallets(win: Window = window) {
+  const injected = win as unknown as { phantom?: { solana?: SolProvider }; solflare?: SolProvider };
+  const wallets: InjectedWallet[] = [];
+  const seen = new Set<string>();
+  for (const wallet of getWallets().get()) {
+    if (!wallet.chains.includes(MAINNET)) continue;
+    const provider = standardProvider(wallet);
+    if (!provider) continue;
+    const key = wallet.name.toLowerCase();
+    seen.add(key);
+    wallets.push({ rdns: `standard:${key}`, name: wallet.name, provider });
+  }
+  const addLegacy = (rdns: string, name: string, provider?: SolProvider) => {
+    if (provider && !seen.has(name.toLowerCase())) wallets.push({ rdns, name, provider });
+  };
+  addLegacy("phantom", "Phantom", injected.phantom?.solana);
+  addLegacy("solflare", "Solflare", injected.solflare);
+  return wallets;
+}
+export function bootWalletDiscovery() {
+  const wallets = discoverWallets();
+  if (wallets.map((w) => w.rdns).join() !== snap.wallets.map((w) => w.rdns).join()) {
+    snap.wallets = wallets; emit();
+  }
+}
+export const getSolana = () => selected;
+export const walletSnap = () => snap;
+export async function refreshAccount() {
+  const account = snap.account;
+  if (!account) return;
+  try {
+    const b = await rpc<{ value: number }>("getBalance", [account, { commitment: "confirmed" }]);
+    if (snap.account === account) { snap.bal = b.value / 1e9; emit(); }
+  } catch { if (snap.account === account) { snap.bal = null; emit(); } }
+}
 export async function connectWallet(rdns?: string) {
   bootWalletDiscovery();
-  const w =
-    (rdns ? snap.wallets.find((x) => x.rdns === rdns) : null) ??
-    snap.wallets.find((x) => /rabby/i.test(x.rdns + x.name)) ??
-    snap.wallets.find((x) => /metamask/i.test(x.rdns + x.name)) ??
-    snap.wallets[0];
-  const eth = w?.provider ?? getEth() ?? (isExtension() ? (extensionWalletProvider() as Eth | null) : null);
-  if (!eth) throw new Error("wallet not found — install MetaMask or Rabby");
-  selected = eth;
-  bindProvider(eth);
-  const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-  const account = accs[0];
-  if (!account) throw new Error("no account");
-  snap.walletName = w?.name ?? walletLabel(eth);
-  await ensureRobinhood(eth);
-  await refresh(account, eth);
-  return account;
+  const wallet = snap.wallets.find((w) => w.rdns === rdns) ?? snap.wallets[0];
+  if (!wallet) throw new Error("Install a Solana Wallet Standard wallet, then refresh this page.");
+  const result = await wallet.provider.connect();
+  selected = wallet.provider;
+  snap.account = result.publicKey.toString(); snap.walletName = wallet.name; emit();
+  if (!bound.has(selected)) {
+    const provider = selected; bound.add(provider);
+    provider.on?.("accountChanged", (key) => {
+      if (selected !== provider) return;
+      snap.account = key?.toString() ?? ""; snap.bal = null; emit(); void refreshAccount();
+    });
+    provider.on?.("disconnect", () => {
+      if (selected !== provider) return;
+      snap.account = ""; snap.bal = null; selected = null; emit();
+    });
+  }
+  void refreshAccount();
+  return snap.account;
 }
-
-export function disconnectWallet() {
-  snap.account = "";
-  snap.bal = 0n;
-  emit();
+export async function disconnectWallet() {
+  await selected?.disconnect(); selected = null; snap.account = ""; snap.walletName = ""; snap.bal = null; emit();
 }
-
-export function refreshAccount() {
-  const eth = getEth();
-  if (!eth || !snap.account) return Promise.resolve();
-  return refresh(snap.account, eth);
-}
-
-export async function ethBalance(account: string) {
-  const eth = getEth();
-  if (!eth) return 0n;
-  const hex = (await eth.request({
-    method: "eth_getBalance",
-    params: [account, "latest"],
-  })) as string;
-  return BigInt(hex);
-}
-
-export async function chainIdHex() {
-  const eth = getEth();
-  if (!eth) return "";
-  return (await eth.request({ method: "eth_chainId" })) as string;
-}
-
-export function walletLabel(eth?: Eth | null) {
-  const p = eth ?? getEth();
-  if (!p) return "Wallet";
-  if (p.isRabby) return "Rabby Wallet";
-  if (p.isMetaMask) return "MetaMask";
-  return snap.walletName || "Wallet";
-}
-
 export function useWallet() {
-  const [s, setS] = useState(snap);
+  const [value, setValue] = useState(snap);
   useEffect(() => {
+    const fn = () => setValue({ ...snap }); listeners.add(fn);
+    const registry = getWallets();
+    const offRegister = registry.on("register", bootWalletDiscovery);
+    const offUnregister = registry.on("unregister", bootWalletDiscovery);
     bootWalletDiscovery();
-    const unsub = subscribeWallet(() => setS({ ...walletSnap(), wallets: [...walletSnap().wallets] }));
-    const eth = getEth();
-    if (eth) {
-      eth.request({ method: "eth_accounts" }).then((a) => {
-        const accs = a as string[];
-        if (accs[0]) {
-          selected = selected ?? eth;
-          snap.walletName = snap.walletName || walletLabel(eth);
-          bindProvider(eth);
-          void refresh(accs[0], eth);
-        }
-      });
-    }
-    return unsub;
+    return () => { listeners.delete(fn); offRegister(); offUnregister(); };
   }, []);
-  return s;
+  return value;
 }

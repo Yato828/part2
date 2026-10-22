@@ -1,0 +1,197 @@
+{
+  "at": "2026-10-16T11:42:55.313Z",
+  "base": "http://localhost:4664",
+  "results": [
+    {
+      "name": "fresh desk",
+      "detail": {
+        "empty": true,
+        "chartCount": 0,
+        "panels": 0
+      }
+    },
+    {
+      "name": "live chart",
+      "detail": {
+        "token": "SOL\norca\nSo1111…1112 ⧉",
+        "source": "GeckoTerminal · 2026-10-16T11:42:59.040Z\nRefresh\nOlder history\nPool ↗",
+        "notes": []
+      }
+    },
+    {
+      "name": "1h chart",
+      "detail": {
+        "source": "GeckoTerminal · 2026-10-16T11:42:59.040Z\nRefresh\nOlder history\nPool ↗",
+        "notes": []
+      }
+    },
+    {
+      "name": "Markets",
+      "detail": {
+        "rows": 32,
+        "notes": [
+          "DEX Screener · Solana mainnet. Ranked by observed DEX activity; no social trend claims."
+        ]
+      }
+    },
+    {
+      "name": "Pulse",
+      "detail": {
+        "rows": 0,
+        "notes": [
+          "DEX Screener · recently profiled Solana markets. "
+        ]
+      }
+    },
+    {
+      "name": "New Tokens",
+      "detail": {
+        "rows": 22,
+        "notes": [
+          "DEX Screener · Solana mainnet. Recently observed token profiles; pool age is shown when supplied by the source. This is not a complete list of new mints."
+        ]
+      }
+    },
+    {
+      "name": "Trend Radar",
+      "detail": {
+        "rows": 32,
+        "notes": [
+          "DEX Screener · Solana mainnet. Ranked by observed DEX activity; no social trend claims."
+        ]
+      }
+    },
+    {
+      "name": "Blocks",
+      "detail": {
+        "rows": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "Bubble Map",
+      "detail": {
+        "rows": 0,
+        "notes": []
+      }
+    },
+    {
+      "name": "Flow",
+      "detail": {
+        "rows": 300,
+        "notes": []
+      }
+    },
+    {
+      "name": "Token X-Ray",
+      "detail": {
+        "rows": 12,
+        "notes": [
+          "Holder data covers owners of the largest 20 token accounts, aggregated by owner. It is not the full holder distribution; exchange, pool and custody accounts may dominate. Wallet clusters and transfer edges: not supported without an indexer.",
+          "Holders: 403 /rpc-backup",
+          "Data unavailable from connected sources",
+          "RPC fallback USD values use a current price estimate; inspect the transaction for execution details.",
+          "How this heuristic worksStarts at 38, adds bounded log liquidity (22 max), log volume (12 max), listed links (6 each), buy/sell ratio and age; deducts for a new pool, large moves and thin liquidity. Clamped to 1–99. This is a local activity heuristic, not a safety rating or a forecast. Listed links do not verify social activity."
+        ]
+      }
+    },
+    {
+      "name": "Wallet Watch",
+      "detail": {
+        "rows": 8,
+        "notes": [
+          "Some RPC details are unavailable or rate limited. Loaded rows are retained; retry later."
+        ]
+      }
+    },
+    {
+      "name": "Smart Money",
+      "detail": {
+        "rows": 8,
+        "notes": [
+          "Some RPC details are unavailable or rate limited. Loaded rows are retained; retry later."
+        ]
+      }
+    },
+    {
+      "name": "Swap SOL selected",
+      "detail": {
+        "button": [
+          "Choose a token to buy"
+        ]
+      }
+    },
+    {
+      "name": "No injected wallet",
+      "detail": [
+        "Install a Solana Wallet Standard wallet, then refresh this page."
+      ]
+    },
+    {
+      "name": "live Astra read-only tool",
+      "detail": {
+        "answer": [
+          "ASTRA GPT-62026-10-16 11:45:56 UTCCopyCurrent Solana slot: **457,625,745**\n\nSource: Solana mainnet RPC  \nTime: 2026-10-16 11:45:54.296 UTC"
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "KOL Analyzer",
+      "detail": {
+        "title": "KOL Analyzer",
+        "errors": []
+      }
+    },
+    {
+      "name": "Launchpad",
+      "detail": {
+        "title": "Launchpad",
+        "errors": []
+      }
+    },
+    {
+      "name": "Tweet to Token",
+      "detail": {
+        "title": "Tweet to Token",
+        "errors": []
+      }
+    },
+    {
+      "name": "Website Builder",
+      "detail": {
+        "title": "Website Builder",
+        "errors": []
+      }
+    },
+    {
+      "name": "Settings",
+      "detail": {
+        "title": "Your desk. Your layout.",
+        "errors": []
+      }
+    },
+    {
+      "name": "mobile 390",
+      "detail": {
+        "width": 390,
+        "viewport": 390
+      }
+    },
+    {
+      "name": "popup",
+      "detail": {
+        "search": true
+      }
+    }
+  ],
+  "errors": [],
+  "screenshots": [
+    "/tmp/part-customization-modules/desktop-empty.png",
+    "/tmp/part-customization-modules/desktop-live-chart.png",
+    "/tmp/part-customization-modules/desktop-live-xray.png",
+    "/tmp/part-customization-modules/desktop-astra.png",
+    "/tmp/part-customization-modules/mobile-settings.png",
+    "/tmp/part-customization-modules/popup.png"
+  ]
+}

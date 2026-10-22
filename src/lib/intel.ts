@@ -69,9 +69,11 @@ export function briefIntel(input: IntelInput): IntelBrief {
   const buys = c?.buys24h ?? 0;
   const sells = c?.sells24h ?? 0;
   const social =
-    [c?.twitter ? "X LIVE" : null, c?.website ? "WEB LIVE" : null].filter(Boolean).join(" · ") || "NO SOCIALS";
+    [c?.twitter ? "X LIVE" : null, c?.website ? "WEB LIVE" : null]
+      .filter(Boolean)
+      .join(" · ") || "NO SOCIALS";
   const flags: string[] = [];
-  if (input.stock) flags.push("RH STOCK TOKEN");
+  if (input.stock) flags.push("SPL TOKEN");
   if (socials) flags.push("SOCIALS");
   else if (input.armed) flags.push("DARK SOCIAL");
   if (Number.isFinite(liq) && liq > 0) flags.push(`LIQ ${Math.round(liq)}`);
@@ -83,7 +85,8 @@ export function briefIntel(input: IntelInput): IntelBrief {
       score: 0,
       verdict: "STANDBY",
       action: "AWAITING TOKEN",
-      review: "Fable 5.1 is watching — the fastest and most accurate read on this chain. Search a ticker in the left rail. I will score liquidity and tape, then say if this is a live buy, a wait, or a rug.",
+      review:
+        "Search a Solana token above. This local brief summarizes liquidity, volume and recent price action for the selected pool.",
       social: "—",
       flags: ["IDLE"],
     };
@@ -104,7 +107,10 @@ export function briefIntel(input: IntelInput): IntelBrief {
   const dump = chg24 < -25 || chg1h < -12;
   const micro = liq > 0 && liq < 12000;
   const newborn = ageH < 8;
-  if ((micro && (newborn || socials === 0)) || (micro && dump && sells > buys * 1.4)) {
+  if (
+    (micro && (newborn || socials === 0)) ||
+    (micro && dump && sells > buys * 1.4)
+  ) {
     return {
       id: "rug",
       score,
@@ -158,20 +164,24 @@ export function briefIntel(input: IntelInput): IntelBrief {
       score,
       verdict: "STOCK TOKEN",
       action: "HOLD OK",
-      review: `${input.symbol} is an official Robinhood Chain stock token, not a meme. Fine for a longer horizon if you understand the equity. Do not lever this like a degen mint — it is a share, not a rug.`,
+      review: `${input.symbol} has deeper liquidity in this snapshot. Check the mint and pool before making a decision.`,
       social,
       flags: [...flags, "HOLD OK"],
     };
   }
 
-  const healthy = liq >= 80000 && vol >= 5000 && (socials > 0 || input.stock) && Math.abs(chg24) < 28;
+  const healthy =
+    liq >= 80000 &&
+    vol >= 5000 &&
+    (socials > 0 || input.stock) &&
+    Math.abs(chg24) < 28;
   if (healthy && (chg24 >= -4 || (buys >= sells && chg1h >= 0))) {
     return {
       id: "buy",
       score,
       verdict: "LIVE WINDOW",
       action: "BUY OK NOW",
-      review: `${input.symbol} is live: liquidity is real, volume is printing. Fable 5.1 reads a clean window. Short entry is OK. Do not marry it — this is a DEX, not a treasury.`,
+      review: `${input.symbol} is live: liquidity is real, volume is printing. This snapshot shows an active window. Short entry is OK. Do not marry it — this is a DEX, not a treasury.`,
       social,
       flags: [...flags, "LIVE BUY"],
     };

@@ -1,38 +1,72 @@
 import { describe, expect, it } from "vitest";
-import { getAddress, parseEther } from "viem";
-import { encodePath, minAmountOut, parseEthIn, SLIPPAGE_BPS } from "./swap";
-import { WETH, USDG } from "./const";
-import type { Address } from "viem";
-
-describe("swap math + path", () => {
-  it("rejects zero / negative ETH", () => {
-    expect(() => parseEthIn("0")).toThrow(/greater than 0/);
-    expect(() => parseEthIn("-1")).toThrow();
-    expect(() => parseEthIn("")).toThrow();
+import { parseSolIn } from "./swap";
+describe("SOL amounts", () => {
+  it("converts SOL to lamports without floating-point rounding", () => {
+    expect(parseSolIn("0.000000001")).toBe(1n);
+    expect(parseSolIn("1.123456789")).toBe(1123456789n);
   });
-
-  it("parses 0.01 ETH", () => {
-    expect(parseEthIn("0.01")).toBe(parseEther("0.01"));
+  it("rejects invalid, zero, negative and overprecise amounts", () => {
+    for (const value of [
+      "",
+      "0",
+      "-1",
+      "NaN",
+      "1e2",
+      "0.0000000001",
+      "Infinity",
+    ])
+      expect(() => parseSolIn(value)).toThrow();
   });
+});
 
-  it("applies 2% slippage floor", () => {
-    expect(minAmountOut(10_000n)).toBe(9_800n);
-    expect(minAmountOut(100n, SLIPPAGE_BPS)).toBe(98n);
+import { vi, beforeEach } from "vitest";
+import { quoteSol, executeSwap } from "./swap";
+import { getJson } from "./http";
+import { rpc } from "./rpcFeed";
+import { WSOL, USDC } from "./const";
+vi.mock("./http", () => ({ getJson: vi.fn() }));
+vi.mock("./rpcFeed", () => ({ rpc: vi.fn() }));
+vi.mock("./wallet", () => ({
+  getSolana: () => ({ signAndSendTransaction: vi.fn() }),
+  walletSnap: () => ({ account: "A".repeat(32) }),
+}));
+beforeEach(() => {
+  vi.mocked(getJson).mockReset();
+  vi.mocked(rpc).mockReset();
+});
+describe("swap quote validation", () => {
+  it("rejects wrong output mint before any transaction is built", async () => {
+    vi.mocked(rpc).mockResolvedValue({ value: { decimals: 6 } });
+    vi.mocked(getJson).mockResolvedValue({
+      success: true,
+      data: { inputMint: WSOL, outputMint: WSOL, inputAmount: "100000000" },
+    });
+    await expect(quoteSol(USDC, "0.1")).rejects.toThrow("does not match");
   });
-
-  it("encodes Uniswap v3 packed path WETH→USDG fee 500", () => {
-    const weth = getAddress(WETH) as Address;
-    const usdg = getAddress(USDG) as Address;
-    const path = encodePath([weth, usdg], [500]);
-    expect(path.startsWith("0x")).toBe(true);
-    expect(path.length).toBe(2 + 40 + 6 + 40);
-    expect(path.slice(2, 42)).toBe(weth.slice(2).toLowerCase());
-    expect(path.slice(42, 48)).toBe("0001f4");
-    expect(path.slice(48)).toBe(usdg.slice(2).toLowerCase());
+  it("rejects manipulated amounts, slippage and empty routes", async () => {
+    vi.mocked(rpc).mockResolvedValue({ value: { decimals: 6 } });
+    vi.mocked(getJson).mockResolvedValue({
+      success: true,
+      data: {
+        inputMint: WSOL, outputMint: USDC, inputAmount: "100000000",
+        outputAmount: "1000", otherAmountThreshold: "1001", priceImpactPct: 0,
+        slippageBps: 500, routePlan: [],
+      },
+    });
+    await expect(quoteSol(USDC, "0.1", 100)).rejects.toThrow("invalid quote");
   });
-
-  it("rejects malformed path lengths", () => {
-    const weth = getAddress(WETH) as Address;
-    expect(() => encodePath([weth], [500])).toThrow(/path length/);
+  it("rejects zero or excessive slippage before calling APIs", async () => {
+    await expect(quoteSol(USDC, "0.1", 0)).rejects.toThrow("Slippage");
+    await expect(quoteSol(USDC, "0.1", 501)).rejects.toThrow("Slippage");
+    expect(getJson).not.toHaveBeenCalled();
+  });
+  it("rejects expired quotes without building or submitting transactions", async () => {
+    await expect(
+      executeSwap(
+        { response: {} as never, decimals: 6, createdAt: Date.now() - 60000 },
+        () => {},
+      ),
+    ).rejects.toThrow("expired");
+    expect(getJson).not.toHaveBeenCalled();
   });
 });

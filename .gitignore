@@ -7,3 +7,7 @@ dist-ext
 .env
 .env.*
 .vercel
+
+!.env.example
+playwright-report
+test-results

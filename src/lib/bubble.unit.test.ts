@@ -1,39 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { buildBubbleGraph, clusterNodes } from "./bubble";
+import { buildBubbleGraph, clusterNodes, indexedHolders } from "./bubble";
 
 describe("bubble graph", () => {
   it("clusters connected wallets and sizes by flow", () => {
     const g = buildBubbleGraph(
       [
-        { address: { hash: "0x1111111111111111111111111111111111111111" }, value: "1000" },
-        { address: { hash: "0x2222222222222222222222222222222222222222" }, value: "500" },
-        { address: { hash: "0x3333333333333333333333333333333333333333" }, value: "100" },
+        {
+          address: { hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+          value: "1000",
+        },
+        { address: { hash: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" }, value: "500" },
+        { address: { hash: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC" }, value: "100" },
       ],
       [
         {
           timestamp: "",
-          from: { hash: "0x1111111111111111111111111111111111111111" },
-          to: { hash: "0x2222222222222222222222222222222222222222" },
+          from: { hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+          to: { hash: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" },
           total: { value: "10", decimals: "0" },
         },
       ],
       [
         {
-          sender: "0x3333333333333333333333333333333333333333",
-          recipient: "0x3333333333333333333333333333333333333333",
+          sender: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          recipient: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
           volume_0: 2,
           price_0_usd: 10,
           created_at: "",
         },
-      ]
+      ],
     );
     expect(g.nodes.length).toBe(3);
     expect(g.links.length).toBe(1);
-    expect(g.links[0].source.startsWith("0x1111")).toBe(true);
-    expect(g.links[0].target.startsWith("0x2222")).toBe(true);
-    const a = g.nodes.find((n) => n.id.startsWith("0x1111"));
-    const b = g.nodes.find((n) => n.id.startsWith("0x2222"));
-    const c = g.nodes.find((n) => n.id.startsWith("0x3333"));
+    expect(g.links[0].source.startsWith("AAAA")).toBe(true);
+    expect(g.links[0].target.startsWith("BBBB")).toBe(true);
+    const a = g.nodes.find((n) => n.id.startsWith("AAAA"));
+    const b = g.nodes.find((n) => n.id.startsWith("BBBB"));
+    const c = g.nodes.find((n) => n.id.startsWith("CCCC"));
     expect(a?.cluster).toBe(b?.cluster);
     expect(c?.cluster).not.toBe(a?.cluster);
     expect(a!.size).toBeGreaterThan(b!.size);
@@ -48,5 +51,28 @@ describe("bubble graph", () => {
     ];
     clusterNodes(nodes, []);
     expect(nodes[0].cluster).not.toBe(nodes[1].cluster);
+  });
+
+  it("uses indexed owner addresses and merges duplicate owner balances", () => {
+    const holders = indexedHolders([
+      {
+        owner: "So11111111111111111111111111111111111111112",
+        address: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        uiAmount: 10,
+      },
+      {
+        owner: "So11111111111111111111111111111111111111112",
+        address: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        amount: 2_500_000,
+        decimals: 6,
+      },
+      { address: "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", uiAmount: 99 },
+    ]);
+    expect(holders).toEqual([
+      {
+        address: { hash: "So11111111111111111111111111111111111111112" },
+        value: "12.5",
+      },
+    ]);
   });
 });

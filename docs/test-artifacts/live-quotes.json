@@ -1,0 +1,21 @@
+[
+  {
+    "name": "Live SOL→USDC quote",
+    "details": [
+      "You receive 10.587 USDCMinimum 10.481Price impact 0%Quote valid for 46s · Raydium"
+    ],
+    "notes": [],
+    "signButtonDisabled": true
+  },
+  {
+    "name": "Live USDC→SOL exit quote",
+    "values": [
+      "Quoted output0.094437593 SOLMinimum · 1% slippage0.093493217 SOLProvider price impact0.02%"
+    ],
+    "errors": []
+  },
+  {
+    "name": "Extension shell",
+    "walletGuidance": true
+  }
+]

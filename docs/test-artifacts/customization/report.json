@@ -1,0 +1,74 @@
+{
+  "at": "2026-10-16T11:45:13.879Z",
+  "results": [
+    {
+      "name": "real source polling",
+      "additionalSourceResponses": 1,
+      "initialClose": "106.77310839339096",
+      "currentClose": "106.77310839339096",
+      "status": "Auto · 5s"
+    },
+    {
+      "name": "live Astra hypothetical scenario",
+      "http": 200,
+      "body": {
+        "chainId": "solana",
+        "mint": "So11111111111111111111111111111111111111112",
+        "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+        "interval": "5m",
+        "steps": 6,
+        "hypothetical": true,
+        "anchor": {
+          "t": 1792150800000,
+          "price": 106.77310839339096
+        },
+        "points": [
+          {
+            "t": 1792151100000,
+            "price": 106.85852688010566
+          },
+          {
+            "t": 1792151400000,
+            "price": 106.62362604164021
+          },
+          {
+            "t": 1792151700000,
+            "price": 106.49549831156814
+          },
+          {
+            "t": 1792152000000,
+            "price": 106.6770125958369
+          },
+          {
+            "t": 1792152300000,
+            "price": 106.90123612346304
+          },
+          {
+            "t": 1792152600000,
+            "price": 106.80514032590897
+          }
+        ],
+        "explanation": "This explicitly hypothetical, unvalidated LLM illustration depicts a small rise, pullback and recovery—not an investment forecast or trading signal. Recent closes clustered near $106.77 after a high-volume advance and reversal; volume subsequently diminished. Renewed upward movement and further selling are opposing possibilities, and these candles cannot establish which follows. The invented path has no claimed predictive accuracy or guaranteed direction. Source provenance: PART-server GeckoTerminal snapshot fetched 2026-10-16T11:45:06.309Z; not independently audited.",
+        "assumptions": [
+          "Exactly six consecutive future 5-minute intervals.",
+          "Baseline: last observed close, $106.77310839339096.",
+          "Each value is total percent deviation from baseline, not compounded.",
+          "Numerical path is invented solely for education.",
+          "Only the provided snapshot is considered; no external data."
+        ],
+        "source": "GeckoTerminal",
+        "snapshotAt": 1792151106309,
+        "generatedAt": 1792151113094,
+        "model": "gpt-6-astra"
+      },
+      "candleCountBefore": "500",
+      "candleCountAfter": "500"
+    },
+    {
+      "name": "mobile",
+      "scrollWidth": 390,
+      "viewport": 390
+    }
+  ],
+  "errors": []
+}

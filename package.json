@@ -11,14 +11,23 @@
     "typecheck": "tsc --noEmit",
     "ext": "vite build --config vite.ext.config.ts",
     "ext:dev": "vite --config vite.ext.config.ts --host",
-    "ext:zip": "npm run ext && node scripts/pack-ext.mjs"
+    "ext:zip": "npm run ext && node scripts/pack-ext.mjs",
+    "test:browser": "playwright test",
+    "test:extension": "npm run ext && node scripts/extension-terminal-smoke.mjs",
+    "test:live": "PART_LIVE_TESTS=1 vitest run",
+    "test:smoke": "node scripts/browser-smoke.mjs"
   },
   "dependencies": {
+    "@solana/wallet-standard-features": "^1.5.0",
+    "@solana/web3.js": "^1.99.0",
+    "@wallet-standard/app": "^1.1.1",
+    "@wallet-standard/features": "^1.1.1",
+    "lightweight-charts": "^5.2.1",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "viem": "^2.56.3"
+    "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",

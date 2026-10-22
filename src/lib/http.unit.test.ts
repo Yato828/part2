@@ -2,21 +2,34 @@ import { describe, expect, it } from "vitest";
 import { resolvePartUrl } from "./http";
 
 describe("extension url map", () => {
-  it("stays relative on the website", () => {
-    expect(resolvePartUrl("/paprika/networks/robinhood/pools/0x1/ohlcv", "web")).toBe(
-      "/paprika/networks/robinhood/pools/0x1/ohlcv"
+  it("keeps local Astra routing explicit and never redirects website APIs or market data", () => {
+    expect(resolvePartUrl("/api/astra/chat", "ext", "local")).toBe(
+      "http://localhost:4664/api/astra/chat",
+    );
+    expect(resolvePartUrl("/api/astra/chat", "web", "local")).toBe(
+      "/api/astra/chat",
+    );
+    expect(resolvePartUrl("/rpc", "ext", "local")).toBe(
+      "https://api.mainnet-beta.solana.com/",
     );
   });
+  it("stays relative on the website", () => {
+    expect(
+      resolvePartUrl("/paprika/networks/solana/pools/0x1/ohlcv", "web"),
+    ).toBe("/paprika/networks/solana/pools/0x1/ohlcv");
+  });
 
-  it("rewrites public APIs in the extension and leaves registry local", () => {
-    expect(resolvePartUrl("/paprika/networks/robinhood/pools/0x1/ohlcv", "ext")).toBe(
-      "https://api.dexpaprika.com/networks/robinhood/pools/0x1/ohlcv"
+  it("rewrites public APIs in the extension and leaves static assets local", () => {
+    expect(
+      resolvePartUrl("/paprika/networks/solana/pools/0x1/ohlcv", "ext"),
+    ).toBe("https://api.dexpaprika.com/networks/solana/pools/0x1/ohlcv");
+    expect(resolvePartUrl("/dex/latest/dex/search?q=SOL", "ext")).toBe(
+      "https://api.dexscreener.com/latest/dex/search?q=SOL",
     );
-    expect(resolvePartUrl("/dex/latest/dex/search?q=HOOD", "ext")).toBe(
-      "https://api.dexscreener.com/latest/dex/search?q=HOOD"
+    expect(resolvePartUrl("/rpc", "ext")).toBe(
+      "https://api.mainnet-beta.solana.com/",
     );
-    expect(resolvePartUrl("/rpc", "ext")).toBe("https://rpc.mainnet.chain.robinhood.com/");
-    expect(resolvePartUrl("/registry.json", "ext")).toBe("/registry.json");
+    expect(resolvePartUrl("/hero/logo.jpg", "ext")).toBe("/hero/logo.jpg");
     expect(resolvePartUrl("/api/fable", "ext")).toMatch(/\/api\/fable$/);
   });
 });

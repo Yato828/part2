@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "name": "local backend",
+      "origin": "chrome-extension://mdoepecbognhgpabcjhhkpekonncblbn",
+      "ready": true
+    },
+    {
+      "name": "real extension chat",
+      "answer": [
+        "ASTRA GPT-62026-10-16 13:38:46 UTCCopyPART supports Solana mainnet."
+      ],
+      "errors": []
+    },
+    {
+      "name": "real extension scenario",
+      "http": 200,
+      "model": "gpt-6-astra",
+      "points": 6,
+      "hypothetical": true
+    }
+  ],
+  "errors": []
+}

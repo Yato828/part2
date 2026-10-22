@@ -1,90 +1,43 @@
-import { describe, expect, it } from "vitest";
-import { createPublicClient, getAddress, http, parseEther, type Address } from "viem";
-import { CHAIN_ID, QUOTER_V2, RPC, SWAP_ROUTER, WETH } from "./const";
-import {
-  minAmountOut,
-  publicClient,
-  quoteEthToToken,
-  quoterAbi,
-  robinhoodChain,
-  routerWeth,
-  swapPathAbi,
-  swapSingleAbi,
-} from "./swap";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { RPC } from "./const";
+import { fetchTrades } from "./api";
+import { loadCandleResult } from "./axiom";
+describe.skipIf(!process.env.PART_LIVE_TESTS)("Solana mainnet RPC",()=>{
+ it("returns a confirmed slot",async()=>{
+ const res=await fetch(RPC,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[{commitment:"confirmed"}]})});
+ const body=await res.json();expect(body.error).toBeUndefined();expect(body.result).toBeGreaterThan(0);
+ });
+});
 
-const NVDA = getAddress("0x2fAEBBf2F808b7C06addA6f5f3f546F59F519d7c") as Address;
-const FAKE = "0x1111111111111111111111111111111111111111" as Address;
-
-describe("live Robinhood 4663 swap stack", () => {
-  const client = createPublicClient({ chain: robinhoodChain, transport: http(RPC) });
-
-  it("chain id is 4663", async () => {
-    expect(await client.getChainId()).toBe(CHAIN_ID);
-  });
-
-  it("SwapRouter02 / QuoterV2 / WETH have bytecode", async () => {
-    const [router, quoter, weth] = await Promise.all([
-      client.getCode({ address: SWAP_ROUTER as Address }),
-      client.getCode({ address: QUOTER_V2 as Address }),
-      client.getCode({ address: WETH as Address }),
-    ]);
-    expect((router ?? "0x").length).toBeGreaterThan(10);
-    expect((quoter ?? "0x").length).toBeGreaterThan(10);
-    expect((weth ?? "0x").length).toBeGreaterThan(10);
-  });
-
-  it("router WETH9() matches const WETH", async () => {
-    const onchain = await routerWeth();
-    expect(getAddress(onchain)).toBe(getAddress(WETH));
-  });
-
-  it("quotes ETH → NVDA (pool exists, amountOut > 0)", async () => {
-    const hit = await quoteEthToToken(NVDA, "0.01");
-    expect(hit).not.toBeNull();
-    expect(hit!.amountOut).toBeGreaterThan(0n);
-    expect(hit!.fee).toBeGreaterThan(0);
-    expect(minAmountOut(hit!.amountOut)).toBeLessThan(hit!.amountOut);
-  });
-
-  it("simulates SwapRouter02 swap calldata with ETH value (state override)", async () => {
-    const hit = await quoteEthToToken(NVDA, "0.01");
-    expect(hit).not.toBeNull();
-    const amountIn = parseEther("0.01");
-    const minOut = minAmountOut(hit!.amountOut);
-    const sim = hit!.path
-      ? await client.simulateContract({
-          address: SWAP_ROUTER as Address,
-          abi: swapPathAbi,
-          functionName: "exactInput",
-          args: [{ path: hit!.path, recipient: FAKE, amountIn, amountOutMinimum: minOut }],
-          value: amountIn,
-          account: FAKE,
-          stateOverride: [{ address: FAKE, balance: parseEther("10") }],
-        })
-      : await client.simulateContract({
-          address: SWAP_ROUTER as Address,
-          abi: swapSingleAbi,
-          functionName: "exactInputSingle",
-          args: [
-            {
-              tokenIn: getAddress(WETH) as Address,
-              tokenOut: NVDA,
-              fee: hit!.fee,
-              recipient: FAKE,
-              amountIn,
-              amountOutMinimum: minOut,
-              sqrtPriceLimitX96: 0n,
-            },
-          ],
-          value: amountIn,
-          account: FAKE,
-          stateOverride: [{ address: FAKE, balance: parseEther("10") }],
-        });
-    expect(sim.result).toBeGreaterThan(0n);
-  });
-
-  it("quoter and publicClient share the same RPC helper", () => {
-    expect(publicClient().chain.id).toBe(CHAIN_ID);
-    expect(quoterAbi.length).toBeGreaterThan(0);
-  });
+describe.skipIf(!process.env.PART_LIVE_TESTS)("live terminal data", () => {
+ const nativeFetch = globalThis.fetch;
+ beforeAll(() => {
+   const base = process.env.PART_LIVE_BASE || "http://localhost:4664";
+   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+     const url = typeof input === "string" && input.startsWith("/") ? base + input : input;
+     return nativeFetch(url, init);
+   }) as typeof fetch;
+ });
+ afterAll(() => { globalThis.fetch = nativeFetch; });
+ const pool = "6RXwMiLq8Qrsn3HWh6715T8iMtvmh9a7s4rqTkx2C3Jf";
+ const mint = "26QZsh7sjrCTin8WkSZtx28mkZ3fzzXxgDE87wzipump";
+ it("loads real Flow rows from the selected pool", async () => {
+   // Flow needs a currently active pool; the historical memecoin fixture can go quiet.
+   const rows = await fetchTrades("Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE", "So11111111111111111111111111111111111111112");
+   expect(rows.length).toBeGreaterThan(0);
+   expect(rows[0].hash.length).toBeGreaterThan(60);
+   expect(rows[0].amount).toBeGreaterThan(0);
+ });
+ it("loads source-backed short candles without current-price anchoring", async () => {
+   const result = await loadCandleResult(pool, "5m", mint, undefined, 0.0000154);
+   expect(result.bars.length).toBeGreaterThan(0);
+   expect(result.bars.every((b) => b.h >= b.l && b.c > 0)).toBe(true);
+ });
+ it("loads 1h, 4h and 1d without exposing provider errors", async () => {
+   const pool = "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE";
+   for (const interval of ["1h", "4h", "1d"]) {
+     const result = await loadCandleResult(pool, interval, "So11111111111111111111111111111111111111112", undefined, 121);
+     expect(result.bars.length).toBeGreaterThan(0);
+   }
+ });
 });

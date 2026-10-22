@@ -1,10 +1,63 @@
 {
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' wss:; frame-src 'self' https://dexscreener.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=()"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        }
+      ]
+    }
+  ],
   "rewrites": [
-    { "source": "/paprika/:path*", "destination": "https://api.dexpaprika.com/:path*" },
-    { "source": "/dex/:path*", "destination": "https://api.dexscreener.com/:path*" },
-    { "source": "/gecko/:path*", "destination": "https://api.geckoterminal.com/api/v2/:path*" },
-    { "source": "/chain/:path*", "destination": "https://robinhoodchain.blockscout.com/api/v2/:path*" },
-    { "source": "/rhj/:path*", "destination": "https://api.robinhood.com/:path*" },
-    { "source": "/rpc", "destination": "https://rpc.mainnet.chain.robinhood.com/" }
+    {
+      "source": "/rugcheck/:path*",
+      "destination": "https://api.rugcheck.xyz/v1/:path*"
+    },
+    {
+      "source": "/paprika/:path*",
+      "destination": "https://api.dexpaprika.com/:path*"
+    },
+    {
+      "source": "/dex/:path*",
+      "destination": "https://api.dexscreener.com/:path*"
+    },
+    {
+      "source": "/gecko/:path*",
+      "destination": "https://api.geckoterminal.com/api/v2/:path*"
+    },
+    {
+      "source": "/rpc",
+      "destination": "https://api.mainnet-beta.solana.com/"
+    },
+    {
+      "source": "/rpc-backup",
+      "destination": "https://solana-rpc.publicnode.com/"
+    },
+    {
+      "source": "/ray/:path*",
+      "destination": "https://transaction-v1.raydium.io/:path*"
+    }
   ]
 }

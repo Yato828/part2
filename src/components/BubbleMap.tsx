@@ -1,9 +1,21 @@
 import { EXPLORER } from "../lib/const";
 import { fmtPct, fmtQty, shortAddr } from "../lib/format";
-import { fetchBubbleGraph, type BubbleGraph, type BubbleNode } from "../lib/bubble";
+import {
+  fetchBubbleGraph,
+  type BubbleGraph,
+  type BubbleNode,
+} from "../lib/bubble";
 import { useEffect, useRef, useState } from "react";
 
-const PALETTE = ["#f3ead7", "#e8d7a8", "#c4a574", "#efe6d4", "#d9c7a2", "#c45c4a", "#b9a888"];
+const PALETTE = [
+  "#eeeeee",
+  "#c8c8c8",
+  "#aaaaaa",
+  "#dedede",
+  "#909090",
+  "#b8b8b8",
+  "#f4f4f4",
+];
 
 type Sim = BubbleNode & {
   x: number;
@@ -15,7 +27,13 @@ type Sim = BubbleNode & {
   pinned: boolean;
 };
 
-type Cam = { yaw: number; pitch: number; zoom: number; panX: number; panY: number };
+type Cam = {
+  yaw: number;
+  pitch: number;
+  zoom: number;
+  panX: number;
+  panY: number;
+};
 
 export function BubbleMap({
   token,
@@ -28,11 +46,28 @@ export function BubbleMap({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [graph, setGraph] = useState<BubbleGraph>({ nodes: [], links: [] });
-  const [status, setStatus] = useState<"idle" | "load" | "ready">("idle");
+  const [status, setStatus] = useState<"idle" | "load" | "ready" | "error">(
+    "idle",
+  );
+  const [mode, setMode] = useState<"auto" | "holders" | "traders">("auto");
+  const [retry, setRetry] = useState(0);
+  const [error, setError] = useState("");
   const nodesRef = useRef<Sim[]>([]);
-  const cam = useRef<Cam>({ yaw: 0.35, pitch: 0.18, zoom: 1, panX: 0, panY: 0 });
+  const cam = useRef<Cam>({
+    yaw: 0.35,
+    pitch: 0.18,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+  });
   const hover = useRef<string | null>(null);
-  const drag = useRef<{ id?: string; orbit: boolean; lastX: number; lastY: number; moved: boolean } | null>(null);
+  const drag = useRef<{
+    id?: string;
+    orbit: boolean;
+    lastX: number;
+    lastY: number;
+    moved: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!token && !pool) {
@@ -42,16 +77,26 @@ export function BubbleMap({
       return;
     }
     let live = true;
+    setGraph({ nodes: [], links: [] });
+    nodesRef.current = [];
+    setError("");
     setStatus("load");
-    void fetchBubbleGraph(token, pool).then((g) => {
-      if (!live) return;
-      setGraph(g);
-      setStatus("ready");
-    });
+    void fetchBubbleGraph(token, pool, mode, retry > 0)
+      .then((g) => {
+        if (!live) return;
+        setGraph(g);
+        setStatus("ready");
+      })
+      .catch((e) => {
+        if (live) {
+          setError(e instanceof Error ? e.message : "Wallet data unavailable");
+          setStatus("error");
+        }
+      });
     return () => {
       live = false;
     };
-  }, [token, pool]);
+  }, [token, pool, mode, retry]);
 
   useEffect(() => {
     const c = ref.current;
@@ -71,7 +116,7 @@ export function BubbleMap({
         groups.set(n.cluster, list);
       }
       const keys = [...groups.keys()];
-      const R = 170;
+      const R = Math.max(70, Math.min(150, w * 0.23, h * 0.35));
       const prev = new Map(nodesRef.current.map((n) => [n.id, n]));
       const out: Sim[] = [];
       keys.forEach((cl, ci) => {
@@ -113,12 +158,17 @@ export function BubbleMap({
         y: h / 2 + camv.panY + y1 * s,
         z: z2,
         s,
-        r: Math.max(10, (10 + Math.sqrt(Math.max(n.share, 0.002)) * 92) * s * 0.55),
+        r: Math.max(
+          10,
+          (10 + Math.sqrt(Math.max(n.share, 0.002)) * 92) * s * 0.55,
+        ),
       };
     };
 
     const hitAt = (px: number, py: number) => {
-      const ranked = nodesRef.current.map((n) => ({ n, p: project(n) })).sort((a, b) => a.p.z - b.p.z);
+      const ranked = nodesRef.current
+        .map((n) => ({ n, p: project(n) }))
+        .sort((a, b) => a.p.z - b.p.z);
       for (const row of ranked) {
         if (Math.hypot(row.p.x - px, row.p.y - py) <= row.p.r) return row.n;
       }
@@ -199,7 +249,14 @@ export function BubbleMap({
       return x - Math.floor(x);
     };
 
-    const stipple = (cx: number, cy: number, r: number, seed: number, ink: string, dens: number) => {
+    const stipple = (
+      cx: number,
+      cy: number,
+      r: number,
+      seed: number,
+      ink: string,
+      dens: number,
+    ) => {
       const count = Math.max(28, Math.floor(r * r * dens));
       ctx.fillStyle = ink;
       for (let i = 0; i < count; i++) {
@@ -207,11 +264,24 @@ export function BubbleMap({
         const v = hash(seed + i + 91);
         const ang = u * Math.PI * 2;
         const rad = Math.sqrt(v) * r * 0.96;
-        ctx.fillRect(cx + Math.cos(ang) * rad, cy + Math.sin(ang) * rad, 1.15, 1.15);
+        ctx.fillRect(
+          cx + Math.cos(ang) * rad,
+          cy + Math.sin(ang) * rad,
+          1.15,
+          1.15,
+        );
       }
     };
 
-    const drawOrb = (x: number, y: number, r: number, col: string, hot: boolean, dim: boolean, isolated: boolean) => {
+    const drawOrb = (
+      x: number,
+      y: number,
+      r: number,
+      col: string,
+      hot: boolean,
+      dim: boolean,
+      isolated: boolean,
+    ) => {
       const seed = Math.floor(x * 13 + y * 29 + r * 7);
 
       ctx.save();
@@ -224,18 +294,22 @@ export function BubbleMap({
 
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(5,8,12,0.88)";
+      ctx.fillStyle = "rgba(10,10,10,0.94)";
       ctx.fill();
       ctx.save();
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.clip();
-      stipple(x, y, r, seed, hot ? "#fff6e4" : col, hot ? 0.72 : 0.5);
+      stipple(x, y, r, seed, hot ? "#ffffff" : col, hot ? 0.72 : 0.5);
       ctx.restore();
 
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = isolated ? "rgba(243,234,215,0.28)" : hot ? "#fff6e4" : "rgba(243,234,215,0.42)";
+      ctx.strokeStyle = isolated
+        ? "rgba(220,220,220,0.28)"
+        : hot
+          ? "#ffffff"
+          : "rgba(220,220,220,0.42)";
       ctx.setLineDash(isolated ? [2.5, 2.5] : []);
       ctx.lineWidth = hot ? 1.5 : 0.85;
       ctx.stroke();
@@ -243,22 +317,37 @@ export function BubbleMap({
       ctx.restore();
     };
 
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
       const x = e.clientX - r.left;
       const y = e.clientY - r.top;
       const hit = hitAt(x, y);
       if (hit) {
         hit.pinned = true;
-        drag.current = { id: hit.id, orbit: false, lastX: e.clientX, lastY: e.clientY, moved: false };
+        drag.current = {
+          id: hit.id,
+          orbit: false,
+          lastX: e.clientX,
+          lastY: e.clientY,
+          moved: false,
+        };
       } else {
-        drag.current = { orbit: true, lastX: e.clientX, lastY: e.clientY, moved: false };
+        drag.current = {
+          orbit: true,
+          lastX: e.clientX,
+          lastY: e.clientY,
+          moved: false,
+        };
       }
     };
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
       const x = e.clientX - r.left;
       const y = e.clientY - r.top;
+      if (!drag.current && (x < 0 || y < 0 || x > r.width || y > r.height)) {
+        hover.current = null;
+        return;
+      }
       const over = hitAt(x, y);
       hover.current = over?.id ?? null;
       const d = drag.current;
@@ -279,13 +368,20 @@ export function BubbleMap({
         n.y += dy * k;
       } else if (d.orbit) {
         cam.current.yaw += dx * 0.008;
-        cam.current.pitch = Math.max(-1.05, Math.min(1.05, cam.current.pitch + dy * 0.006));
+        cam.current.pitch = Math.max(
+          -1.05,
+          Math.min(1.05, cam.current.pitch + dy * 0.006),
+        );
       }
     };
     const onUp = () => {
       const d = drag.current;
       if (d?.id && !d.moved) {
-        window.open(`${EXPLORER}/address/${d.id}`, "_blank");
+        window.open(
+          `${EXPLORER}/account/${d.id}`,
+          "_blank",
+          "noopener,noreferrer",
+        );
       }
       if (d?.id) {
         const n = nodesRef.current.find((q) => q.id === d.id);
@@ -295,7 +391,10 @@ export function BubbleMap({
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      cam.current.zoom = Math.max(0.45, Math.min(2.6, cam.current.zoom * (e.deltaY > 0 ? 0.92 : 1.09)));
+      cam.current.zoom = Math.max(
+        0.45,
+        Math.min(2.6, cam.current.zoom * (e.deltaY > 0 ? 0.92 : 1.09)),
+      );
     };
     const onDbl = () => {
       cam.current = { yaw: 0.35, pitch: 0.18, zoom: 1, panX: 0, panY: 0 };
@@ -303,9 +402,9 @@ export function BubbleMap({
       if (graph.nodes.length) layout(graph.nodes);
     };
 
-    c.addEventListener("mousedown", onDown);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    c.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
     c.addEventListener("wheel", onWheel, { passive: false });
     c.addEventListener("dblclick", onDbl);
     nodesRef.current = [];
@@ -321,7 +420,12 @@ export function BubbleMap({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      if (w > 40 && h > 40 && graph.nodes.length && nodesRef.current.length !== graph.nodes.length) {
+      if (
+        w > 40 &&
+        h > 40 &&
+        graph.nodes.length &&
+        nodesRef.current.length !== graph.nodes.length
+      ) {
         layout(graph.nodes);
       }
       if (nodesRef.current.length) tick();
@@ -336,11 +440,20 @@ export function BubbleMap({
         }
       }
 
-      const projected = nodesRef.current.map((n) => ({ n, p: project(n) })).sort((a, b) => b.p.z - a.p.z);
+      const projected = nodesRef.current
+        .map((n) => ({ n, p: project(n) }))
+        .sort((a, b) => b.p.z - a.p.z);
       const byId = new Map(projected.map((row) => [row.n.id, row]));
 
-      const drawSilk = (x1: number, y1: number, x2: number, y2: number, alpha: number, width: number) => {
-        ctx.strokeStyle = `rgba(243,234,215,${alpha})`;
+      const drawSilk = (
+        x1: number,
+        y1: number,
+        x2: number,
+        y2: number,
+        alpha: number,
+        width: number,
+      ) => {
+        ctx.strokeStyle = `rgba(220,220,220,${alpha})`;
         ctx.lineWidth = width;
         ctx.beginPath();
         ctx.moveTo(x1, y1);
@@ -357,7 +470,7 @@ export function BubbleMap({
         x2: number,
         y2: number,
         r2: number,
-        focus: boolean
+        focus: boolean,
       ) => {
         const dx = x2 - x1;
         const dy = y2 - y1;
@@ -369,8 +482,10 @@ export function BubbleMap({
         const sy = y1 + uy * (r1 + 1);
         const ex = x2 - ux * (r2 + 2);
         const ey = y2 - uy * (r2 + 2);
-        ctx.strokeStyle = focus ? "rgba(243,234,215,0.85)" : "rgba(243,234,215,0.32)";
-        ctx.fillStyle = focus ? "#f3ead7" : "rgba(243,234,215,0.5)";
+        ctx.strokeStyle = focus
+          ? "rgba(220,220,220,0.85)"
+          : "rgba(220,220,220,0.32)";
+        ctx.fillStyle = focus ? "#eeeeee" : "rgba(220,220,220,0.5)";
         ctx.lineWidth = focus ? 1.8 : 1;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
@@ -421,35 +536,53 @@ export function BubbleMap({
       for (const row of projected) {
         const col = PALETTE[row.n.cluster % PALETTE.length];
         const dim = Boolean(hid && !linked.has(row.n.id));
-        drawOrb(row.p.x, row.p.y, row.p.r, col, hid === row.n.id, dim, (deg.get(row.n.id) ?? 0) === 0);
+        drawOrb(
+          row.p.x,
+          row.p.y,
+          row.p.r,
+          col,
+          hid === row.n.id,
+          dim,
+          (deg.get(row.n.id) ?? 0) === 0,
+        );
+        if (row.p.r >= 17) {
+          ctx.font = "10px monospace";
+          ctx.textAlign = "center";
+          ctx.fillStyle = dim ? "#777" : "#fff";
+          ctx.fillText(
+            `${(row.n.share * 100).toFixed(1)}%`,
+            row.p.x,
+            row.p.y + row.p.r + 13,
+          );
+        }
       }
 
       const clusterIds = new Set(graph.nodes.map((n) => n.cluster));
       let lx = 8;
       ctx.font = "9px 'Instrument Sans', sans-serif";
       ctx.textAlign = "left";
-      [...clusterIds].forEach((cl, i) => {
+      (graph.links.length ? [...clusterIds] : []).forEach((cl, i) => {
         ctx.fillStyle = PALETTE[cl % PALETTE.length];
         ctx.beginPath();
         ctx.arc(lx + 5, h - 12, 4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "rgba(243,234,215,0.7)";
+        ctx.fillStyle = "rgba(220,220,220,0.7)";
         ctx.fillText(`C${i + 1}`, lx + 12, h - 9);
         lx += 38;
       });
 
       const hn = hid ? byId.get(hid) : undefined;
       if (hn) {
-        const label = `${hn.n.name || shortAddr(hn.n.id)}  ${fmtPct(hn.n.share)}  txs ${fmtQty(hn.n.txs)}  ${hn.n.contract ? "CONTRACT" : "EOA"}`;
+        const label = `${hn.n.name || shortAddr(hn.n.id)}  ${fmtPct(hn.n.share)}  txs ${fmtQty(hn.n.txs)}  ${hn.n.contract ? "PROGRAM" : "OWNER"}`;
         ctx.font = "11px 'Instrument Sans', sans-serif";
         const tw = Math.min(w - 16, label.length * 7 + 14);
         const tx = Math.max(8, Math.min(w - tw - 8, hn.p.x - tw / 2));
         const ty = Math.max(8, hn.p.y - hn.p.r - 22);
-        ctx.fillStyle = "#17150f";
+        ctx.fillStyle = "#161616";
         ctx.fillRect(tx, ty, tw, 16);
-        ctx.strokeStyle = "rgba(243,234,215,0.4)";
+        ctx.strokeStyle = "rgba(220,220,220,0.4)";
         ctx.strokeRect(tx, ty, tw, 16);
-        ctx.fillStyle = "#f3ead7";
+        ctx.fillStyle = "#eeeeee";
         ctx.fillText(label, tx + 6, ty + 12);
       }
 
@@ -458,21 +591,86 @@ export function BubbleMap({
     raf = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(raf);
-      c.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      c.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
       c.removeEventListener("wheel", onWheel);
       c.removeEventListener("dblclick", onDbl);
     };
   }, [graph]);
 
   return (
-    <div className="bubble-wrap">
-      <canvas ref={ref} />
-      {status === "idle" && <div className="bubble-empty">Search a market to spin the web</div>}
-      {status === "load" && !graph.nodes.length && <div className="bubble-empty">Mapping the web…</div>}
-      {status === "ready" && !graph.nodes.length && <div className="bubble-empty">No flow · {symbol || "—"}</div>}
-      <div className="bubble-hint">pull a node · drag empty space to orbit · wheel zoom</div>
+    <div className="bubble-module">
+      <div className="bubble-toolbar">
+        <b>
+          {graph.kind === "traders" ? "Trader wallets" : "Token holders"}{" "}
+          <span>{graph.nodes.length ? `· ${graph.nodes.length}` : ""}</span>
+        </b>
+        <div>
+          {(["auto", "holders", "traders"] as const).map((value) => (
+            <button
+              key={value}
+              className={mode === value ? "selected" : ""}
+              onClick={() => setMode(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+        <button
+          disabled={!token || status === "load"}
+          onClick={() => setRetry((n) => n + 1)}
+        >
+          {status === "load" ? "Loading…" : "↻ Refresh"}
+        </button>
+        <button
+          title="Reset map view"
+          onClick={() => {
+            cam.current = { yaw: 0.35, pitch: 0.18, zoom: 1, panX: 0, panY: 0 };
+          }}
+        >
+          Reset
+        </button>
+      </div>
+      <div
+        className="bubble-wrap"
+        data-state={status}
+        data-nodes={graph.nodes.length}
+      >
+        <canvas
+          ref={ref}
+          aria-label={`Bubble map of ${graph.nodes.length} ${graph.kind ?? "holder"} wallets`}
+        />
+        {status === "idle" && (
+          <div className="bubble-empty">
+            Select a token to open its wallet map.
+          </div>
+        )}
+        {status === "load" && !graph.nodes.length && (
+          <div className="bubble-empty">Loading wallet data…</div>
+        )}
+        {status === "ready" && !graph.nodes.length && (
+          <div className="bubble-empty">
+            No wallet data returned for {symbol || "this token"}.
+          </div>
+        )}
+        {status === "error" && (
+          <div className="bubble-empty">
+            <span>{error}</span>
+            <button onClick={() => setRetry((n) => n + 1)}>Retry</button>
+            <button onClick={() => setMode("traders")}>Show traders</button>
+          </div>
+        )}
+        <div className="bubble-hint">
+          Drag to orbit · scroll to zoom · click a wallet to explore
+        </div>
+      </div>
+      <div className="bubble-source">
+        <b>{graph.source ?? "Solana"}</b>
+        <span>
+          {graph.notice ?? "Loading real wallet data. No inferred connections."}
+        </span>
+      </div>
     </div>
   );
 }

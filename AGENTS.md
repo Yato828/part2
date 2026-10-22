@@ -1,57 +1,25 @@
-# PART — trader deck
+# PART — Solana trader deck
 
-Lime-on-black CRT terminal for Robinhood Chain + Axiom-style coin intel. Mascot: **HERO**. Visual language: dither, scanlines, phosphor `#c6ff1a` on `#000`.
+User requested a full Solana migration. All discovery, addresses, charts, swaps and explorer links must use Solana mainnet. Preserve base58 address case. No stock registry or EVM integrations.
 
-## Run
+All product copy, documentation, assistant prompts and future modules must describe PART as a Solana mainnet workspace. Robinhood Chain (4663), EVM/ERC-20 and stock requirements in `PART_CODEX_MASTER_PROMPT.md` are outdated; the user's Solana requirements take precedence.
 
-```powershell
-cd C:\Users\Admin\PART
-npm install
-npm run dev
-```
+Run `npm install && npm run dev`. Local URL: http://localhost:4664/.
 
-Open http://localhost:4663/  
-First click on boot plays the CRT score (browser blocks autoplay). Second click skips boot. Enter jack-in with sound.
+- `src/App.tsx`: shared Solana selection/search, chart-first terminal and lazy workspace panels.
+- `src/features/workspace/`: versioned local layout, launcher, tabs, pin/maximize/reorder, settings.
+- `src/features/astra/`, `src/server/astra.ts`, `api/astra/`: real server-side Responses API chat and bounded read-only tools. Production requires persistent Upstash limits; never put server credentials in browser code.
+- `src/features/intelligence/`, `src/features/create/`: evidence views, wallet watch, read-only exit quotes, manual social analysis, SPL drafts and sandboxed website export. Live deployment stays disabled.
+- `src/terminal.css`, `src/features/preferences/`: responsive terminal styling, persistent dark themes, accents and independent trading colors.
+- `src/lib/axiom.ts`: strictly Solana DEX Screener discovery, GeckoTerminal USD OHLCV, validated DexPaprika fallback.
+- `src/lib/poolStream.ts`, `poolPrice.ts`: read-only Solana account PubSub, verified program/layout decoders, processed/confirmed spot updates, reconnect and provisional current-candle overlay. Supported: Orca Whirlpools, Raydium CLMM, Meteora DLMM; other pools retain explicit source-only mode. Never label an HTTP bootstrap as a live push or invent volume from spot prices.
+- `src/lib/holders.ts`: shared RPC/indexed holder fallback with exact mint/owner validation, source attribution and fetch time distinct from unknown index balance time.
+- `src/components/Chart.tsx`: Lightweight Charts candles + volume, OHLC crosshair, intervals, historical paging, log scale, estimated market cap, expand and latest controls.
+- `src/lib/api.ts`, `rpcFeed.ts`: Solana RPC and GeckoTerminal trades. Holder map is largest-account owners, no inferred transfer edges.
+- `src/lib/wallet.ts`: Phantom/Solflare connection.
+- `src/lib/swap.ts`: SOL→SPL quotes and wallet-approved Raydium swaps. No automatic signing or trading.
+- `src/components/HeroIntel.tsx`: disclosed local heuristic, no automatic paid AI calls. WebAudio retained. Branding uses the supplied halftone eye/hands and particle-sphere transition GIF.
+- `vite.config.ts`: `/dex`, `/gecko`, `/paprika`, `/rpc`, `/ray` proxies.
 
-## Layout
-
-- `src/App.tsx` — shell, tabs, tape, bottom SEARCH dock, CLI
-- `src/lib/axiom.ts` — Robinhood-only search + DexPaprika OHLCV (`/paprika`, Gecko fallback)
-- `src/lib/api.ts` — Robinhood Chain (Blockscout, RH registry, RPC, holders, paprika swaps)
-- `src/lib/wallet.ts` — EIP-6963 Connect Wallet: MetaMask + Rabby, add/switch chain 4663
-- `src/lib/swap.ts` — ETH→token via Uniswap SwapRouter02 + QuoterV2
-- `src/lib/audio.ts` — boot drone / arpeggio / ticks
-- `src/lib/bubble.ts` — wallet cluster graph for the bubble map
-- `src/components/Boot.tsx` — HERO particle assemble
-- `src/components/WalletSwap.tsx` — Connect Wallet + account chip + quote + swap
-- `src/components/Chart.tsx` — Axiom-style candles: TIME 1m/5m/15m/1h/4h/1d, drag pan, wheel zoom
-- `src/components/BubbleMap.tsx` — 3D CRT orbs, drag / orbit / zoom (Bubblemaps + Obsidian grid)
-- `src/components/StocksHeat.tsx` — Finviz-style RH stock-token heatmap
-- `src/components/ChainMosaic.tsx` — block treemap + gas ribbon
-- `public/hero/` — mascot stills
-- `public/registry.json` — RH stock-token registry fallback (api.robinhood.com is geo-blocked here)
-- `vite.config.ts` — proxies `/dex` `/gecko` `/paprika` `/chain` `/rhj` `/rpc`
-- `CONTEXT.md` — session memory for the next agent
-
-Removed: GlyphOracle ASCII jokes, CSS radar, matrix rain, Jupiter/Solana, top omni search (search lives at the **bottom**).
-
-## Tabs
-
-- **SEARCH** — cutout in the **top chrome**, center of the frame. Dropdown opens downward. Charts stay empty until a hit is chosen. Left default is STOCKS heat, not the bubble map.
-- **HERO AGENT** — bottom dock. Live score + scenario (rug / halt / dead / thin / chase / long / buy / scalp / wait). Socials from Dex pair. CLI stays as a thin strip under the brief.
-- **Candles** — hidden until the user picks a token. DexPaprika OHLCV with cache / prefetch. TIME 1m/5m/15m/1h/4h/1d, drag pan, wheel zoom, LIVE.
-- **BUBBLE tab** — 3D CRT orbs of tx-origin wallets, directed arrows + cluster web. Hidden until the tab is opened.
-- **STOCKS** — Finviz-style heat of Robinhood stock tokens + halt / corp-action strip (default left pane)
-- **CHAIN** — block mosaic (mempool-style) + gas ribbon + newest Blockscout ERC-20s
-- **Wallet** — CONNECT WALLET. MetaMask / Rabby EIP-6963. Swap ETH→token via SwapRouter02 + QuoterV2. 2% slippage.
-- **TAPE** — clickable from/to wallets and tx hash → Blockscout. Chain txs until a token is armed, then token transfers.
-
-CLI: `axiom NVDA` | `search HOOD` | `token AAPL` | `connect` | `open` | `boot` | `help`
-
-## Data reality
-
-Axiom REST (`api*.axiom.trade`) returns `No auth cookies present`. Public stand-ins: Dexscreener (`chainId=robinhood`) + DexPaprika OHLCV (`/paprika`). No Solana / Jupiter. Blockscout needs a browser User-Agent (set in Vite proxy). GeckoTerminal OHLCV is Cloudflare-blocked (403); do not rely on it.
-
-## Do not
-
-Do not restyle to blue/white. Do not drop HERO. Do not re-add the CSS radar or glyph oracle. Keep sounds WebAudio (no binary samples required). Do not bring Solana/Jupiter back. Search sits in the top chrome cutout; the bottom dock is HERO AGENT.
+Checks: `npm run typecheck`, `npm test`, `npm run test:live`, `npm run test:browser`, `npm run build`, `npm run ext:zip`. Browser tests need the dev server. See `docs/SETUP.md`.
+Public APIs can rate limit; show explicit stale/error states and never synthesize historical candles. Charts stay empty until a token is selected. Use the supplied eye/hands branding and sphere GIF for animated transitions into the terminal and back home. User now explicitly requests customizable dark themes and accents, green/red candles, live updates and optional clearly labeled Astra scenarios. These newer preferences supersede the earlier monochrome-only rule. Never mix hypothetical scenario points into source candles.

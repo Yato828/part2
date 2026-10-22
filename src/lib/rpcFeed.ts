@@ -1,107 +1,109 @@
-import { partFetch } from "./http";
-import type { ChainBlock, ChainStats, ChainTx } from "./api";
-
-type RpcBlock = {
-  number?: string;
-  hash?: string;
-  timestamp?: string;
-  gasUsed?: string;
-  gasLimit?: string;
-  size?: string;
-  transactions?: Array<string | RpcTx>;
-};
-
-type RpcTx = {
-  hash?: string;
-  from?: string;
-  to?: string | null;
-  value?: string;
-  input?: string;
-};
-
-async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
-  const res = await partFetch("/rpc", {
+import { getJson } from "./http";
+async function requestRpc<T>(
+  method: string,
+  params: unknown[] = [],
+): Promise<T> {
+  const init: RequestInit = {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  const body = (await res.json()) as { result?: T; error?: { message?: string } };
-  if (!res.ok || body.error) throw new Error(body.error?.message || `rpc ${method}`);
-  return body.result as T;
-}
-
-function hexNum(v?: string) {
-  if (!v) return 0;
-  const n = Number.parseInt(v, 16);
-  return Number.isFinite(n) ? n : 0;
-}
-
-export async function fetchBlockNumberRpc() {
-  const hex = await rpc<string>("eth_blockNumber");
-  return hexNum(hex);
-}
-
-export async function fetchStatsRpc(): Promise<ChainStats> {
-  const gas = await rpc<string>("eth_gasPrice").catch(() => "0x0");
-  const gwei = hexNum(gas) / 1e9;
-  return {
-    average_block_time: 0,
-    coin_price: "0",
-    gas_prices: { slow: gwei, average: gwei, fast: gwei },
-    total_addresses: "—",
-    total_blocks: "—",
-    total_transactions: "—",
-    transactions_today: "—",
-    gas_used_today: "—",
-    market_cap: "0",
-    network_utilization_percentage: 0,
   };
-}
-
-export async function fetchBlocksRpc(count = 18): Promise<ChainBlock[]> {
-  const head = await fetchBlockNumberRpc();
-  const want = Array.from({ length: count }, (_, i) => head - i).filter((n) => n >= 0);
-  const rows = await Promise.all(
-    want.map(async (n) => {
-      const b = await rpc<RpcBlock | null>("eth_getBlockByNumber", [`0x${n.toString(16)}`, false]);
-      if (!b) return null;
-      const txs = Array.isArray(b.transactions) ? b.transactions.length : 0;
-      return {
-        height: hexNum(b.number) || n,
-        timestamp: new Date(hexNum(b.timestamp) * 1000).toISOString(),
-        transactions_count: txs,
-        gas_used: String(hexNum(b.gasUsed)),
-        size: hexNum(b.size),
-        hash: b.hash ?? "",
-      } satisfies ChainBlock;
-    })
-  );
-  return rows.filter((x): x is ChainBlock => Boolean(x));
-}
-
-export async function fetchTxsRpc(limit = 24): Promise<ChainTx[]> {
-  const head = await fetchBlockNumberRpc();
-  const out: ChainTx[] = [];
-  for (let i = 0; i < 6 && out.length < limit; i++) {
-    const n = head - i;
-    if (n < 0) break;
-    const b = await rpc<RpcBlock | null>("eth_getBlockByNumber", [`0x${n.toString(16)}`, true]);
-    if (!b?.transactions) continue;
-    const ts = new Date(hexNum(b.timestamp) * 1000).toISOString();
-    for (const tx of b.transactions) {
-      if (typeof tx === "string" || !tx.hash || !tx.from) continue;
-      out.push({
-        hash: tx.hash,
-        timestamp: ts,
-        status: "ok",
-        method: null,
-        value: tx.value ? String(BigInt(tx.value)) : "0",
-        from: { hash: tx.from },
-        to: { hash: tx.to ?? "" },
-        block_number: hexNum(b.number) || n,
-      });
-      if (out.length >= limit) break;
+  const request = async (endpoint: string) => {
+    const body = await getJson<{ result?: T; error?: { message: string } }>(
+      endpoint,
+      6000,
+      init,
+    );
+    if (body.error || body.result === undefined)
+      throw new Error(body.error?.message ?? "Solana RPC unavailable");
+    return body.result;
+  };
+  try {
+    // These are read-only RPC calls. Racing two public nodes avoids waiting through
+    // a provider's full timeout when it is rate limited.
+    return await Promise.any([request("/rpc"), request("/rpc-backup")]);
+  } catch (error) {
+    if (error instanceof AggregateError) {
+      const last = error.errors.at(-1);
+      if (last instanceof Error) throw last;
     }
+    throw error;
   }
-  return out;
+}
+
+export async function rpcBatch<T>(
+  calls: Array<{ method: string; params?: unknown[] }>,
+): Promise<Array<T | null>> {
+  if (!calls.length) return [];
+  const body = calls.map((call, i) => ({
+    jsonrpc: "2.0",
+    id: i + 1,
+    method: call.method,
+    params: call.params ?? [],
+  }));
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  const request = async (endpoint: string) => {
+    const rows = await getJson<
+      Array<{ id: number; result?: T; error?: { message: string } }>
+    >(endpoint, 10000, init);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return body.map((call) => {
+      const row = byId.get(call.id);
+      return row?.result === undefined ? null : row.result;
+    });
+  };
+  try {
+    return await Promise.any([request("/rpc"), request("/rpc-backup")]);
+  } catch (error) {
+    if (error instanceof AggregateError) {
+      const last = error.errors.at(-1);
+      if (last instanceof Error) throw last;
+    }
+    throw error;
+  }
+}
+export const fetchBlockNumberRpc = () =>
+  rpc<number>("getSlot", [{ commitment: "confirmed" }]);
+
+// Share bounded read snapshots between visible modules without caching writes.
+const READ_TTL: Record<string, number> = {
+  getSlot: 3000,
+  getRecentPerformanceSamples: 15000,
+  getBlocks: 10000,
+  getBlock: 60000,
+  getTokenSupply: 30000,
+  getTokenLargestAccounts: 30000,
+  getMultipleAccounts: 30000,
+  getSignaturesForAddress: 15000,
+  getTransaction: 60000,
+  getBalance: 10000,
+};
+const snapshots = new Map<string, { value: unknown; until: number }>();
+const pendingReads = new Map<string, Promise<unknown>>();
+export async function rpc<T>(
+  method: string,
+  params: unknown[] = [],
+  fresh = false,
+): Promise<T> {
+  const ttl = READ_TTL[method];
+  if (!ttl) return requestRpc<T>(method, params);
+  const key = JSON.stringify([method, params]);
+  const cached = snapshots.get(key);
+  if (!fresh && cached && cached.until > Date.now()) return cached.value as T;
+  const pending = pendingReads.get(key);
+  if (pending) return pending as Promise<T>;
+  const job = requestRpc<T>(method, params)
+    .then((value) => {
+      snapshots.set(key, { value, until: Date.now() + ttl });
+      if (snapshots.size > 128)
+        snapshots.delete(snapshots.keys().next().value!);
+      return value;
+    })
+    .finally(() => pendingReads.delete(key));
+  pendingReads.set(key, job);
+  return job;
 }

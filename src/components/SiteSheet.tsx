@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 type Sheet = "docs" | "ext";
 
 export function SiteSheet({
@@ -7,16 +9,41 @@ export function SiteSheet({
   kind: Sheet | null;
   onClose: () => void;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const el = dialog.current;
+    const opener =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    if (kind && el && !el.open) el.showModal();
+    return () => {
+      if (el?.open) el.close();
+      if (kind && opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [kind]);
   if (!kind) return null;
 
   return (
-    <div className="sheet" role="dialog" aria-modal="true">
-      <button type="button" className="sheet-dim" onClick={onClose} aria-label="Close" />
+    <dialog
+      ref={dialog}
+      className="sheet"
+      aria-labelledby="site-sheet-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="sheet-card">
         <header className="sheet-head">
           <div>
             <em>{kind === "docs" ? "documentation" : "chrome extension"}</em>
-            <h2>{kind === "docs" ? "PART" : "Add to Chrome"}</h2>
+            <h2 id="site-sheet-title">
+              {kind === "docs" ? "PART documentation" : "Get the extension"}
+            </h2>
           </div>
           <button type="button" className="sheet-x" onClick={onClose}>
             Close
@@ -25,7 +52,7 @@ export function SiteSheet({
 
         {kind === "docs" ? <DocsBody /> : <ExtBody />}
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -33,18 +60,23 @@ function DocsBody() {
   return (
     <div className="sheet-body">
       <p className="sheet-lead">
-        Terminal for Robinhood Chain. <b>Fable 5.1</b> reads the book. Not an agent.
+        Terminal for Solana. <b>Astra</b> is the built-in assistant; server
+        configuration is required.
       </p>
 
       <section>
         <h3>Enter</h3>
-        <p>Highway, tape, then he watches. Press Enter Terminal for the desk.</p>
+        <p>
+          Press Enter Terminal to open your Solana mainnet workspace. Use House
+          in the terminal header to return to the homepage.
+        </p>
       </section>
 
       <section>
         <h3>Search</h3>
         <p>
-          Name, ticker, or <code>0x</code>. Chart opens only after you pick a hit.
+          Name, ticker, or a <code>Solana mint</code>. Chart opens only after
+          you pick a hit.
         </p>
       </section>
 
@@ -52,19 +84,22 @@ function DocsBody() {
         <h3>Desk</h3>
         <ul>
           <li>
-            <b>Pulse</b> — new launches. Age, liq, vol. Stocks stay out.
+            <b>New pairs</b> — recently profiled Solana tokens. Age, liquidity,
+            volume.
           </li>
           <li>
-            <b>Stocks</b> — RH stock tokens, halts, corp actions.
+            <b>Markets</b> — Solana DEX tokens, sortable by volume, change and
+            liquidity.
           </li>
           <li>
-            <b>Blocks</b> — tiles, gas, new ERC-20s.
+            <b>Network</b> — Solana slots, transactions and network activity.
           </li>
           <li>
-            <b>Bubble Map</b> — wallet graph. Drag a node, wheel to zoom.
+            <b>Holders map</b> — largest token-account owners. Drag a node,
+            wheel to zoom.
           </li>
           <li>
-            <b>Swap</b> — ETH → token, Uniswap v3, chain 4663.
+            <b>Swap</b> — SOL → SPL token through Raydium. Phantom / Solflare.
           </li>
           <li>
             <b>Flow</b> — tape. Click a wallet or hash.
@@ -73,14 +108,17 @@ function DocsBody() {
       </section>
 
       <section>
-        <h3>Fable 5.1</h3>
-        <p>Scores, candles, briefs. Liquidity, volume, age, tape — then a verdict.</p>
+        <h3>Astra</h3>
+        <p>
+          Contextual assistant with read-only Solana tools when configured.
+          Local market briefs are labeled separately.
+        </p>
       </section>
 
       <section>
         <h3>Chain</h3>
         <p>
-          EIP-155 <b>4663</b> only. Quotes and swaps stay here.
+          Solana <b>mainnet</b> only. Quotes and swaps stay here.
         </p>
       </section>
     </div>
@@ -91,7 +129,9 @@ function ExtBody() {
   return (
     <div className="sheet-body">
       <p className="sheet-lead">
-        Not in the Chrome Web Store. Load the archive. Popup is the terminal, 400×580.
+        Not in the Chrome Web Store. Load the archive. Popup shows the Solana
+        terminal. Connect wallets in the website; browser extensions do not
+        inject wallets into other extension popups.
       </p>
 
       <a className="sheet-dl" href="/part-ext.zip" download="part-ext.zip">
@@ -101,11 +141,12 @@ function ExtBody() {
 
       <ol className="sheet-steps">
         <li>
-          <b>Unzip the archive.</b> <code>manifest.json</code> must sit in the root of the folder
-          — not one extra directory down.
+          <b>Unzip the archive.</b> <code>manifest.json</code> must sit in the
+          root of the folder — not one extra directory down.
         </li>
         <li>
-          Open <code>chrome://extensions</code> and turn on <b>Developer mode</b>.
+          Open <code>chrome://extensions</code> and turn on{" "}
+          <b>Developer mode</b>.
         </li>
         <li>
           Click <b>Load unpacked</b> and select that folder.
@@ -114,9 +155,9 @@ function ExtBody() {
       </ol>
 
       <p className="sheet-note">
-        Chrome will warn that the extension is not from the Chrome Web Store. That is expected.
-        Edge uses <code>edge://extensions</code>. Brave uses <code>brave://extensions</code>. Same
-        steps.
+        Chrome will warn that the extension is not from the Chrome Web Store.
+        That is expected. Edge uses <code>edge://extensions</code>. Brave uses{" "}
+        <code>brave://extensions</code>. Same steps.
       </p>
     </div>
   );

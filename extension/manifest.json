@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "PART",
-  "version": "1.2.0",
-  "description": "PART terminal on Fable 5.1 — fastest and most accurate.",
+  "version": "1.3.0",
+  "description": "PART terminal on Astra \u2014 Solana workspace with an optional Astra assistant.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "PART",
@@ -19,19 +19,20 @@
     "48": "icons/48.png",
     "128": "icons/128.png"
   },
-  "permissions": ["scripting"],
   "host_permissions": [
     "https://api.dexscreener.com/*",
     "https://api.geckoterminal.com/*",
     "https://api.dexpaprika.com/*",
-    "https://robinhoodchain.blockscout.com/*",
-    "https://api.robinhood.com/*",
-    "https://rpc.mainnet.chain.robinhood.com/*",
+    "https://transaction-v1.raydium.io/*",
+    "https://api.mainnet-beta.solana.com/*",
+    "https://solana-rpc.publicnode.com/*",
     "https://part-woad.vercel.app/*",
     "https://fonts.googleapis.com/*",
-    "https://fonts.gstatic.com/*"
+    "https://fonts.gstatic.com/*",
+    "https://api.rugcheck.xyz/*",
+    "http://localhost:4664/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://api.dexscreener.com https://api.geckoterminal.com https://api.dexpaprika.com https://robinhoodchain.blockscout.com https://api.robinhood.com https://rpc.mainnet.chain.robinhood.com https://part-woad.vercel.app https://fonts.googleapis.com https://fonts.gstatic.com; base-uri 'none'; form-action 'none'"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' wss: http://localhost:4664 https://api.rugcheck.xyz https://api.dexscreener.com https://api.geckoterminal.com https://api.dexpaprika.com https://transaction-v1.raydium.io https://api.mainnet-beta.solana.com https://solana-rpc.publicnode.com https://part-woad.vercel.app https://fonts.googleapis.com https://fonts.gstatic.com; frame-src 'self' https://dexscreener.com; base-uri 'none'; form-action 'none'"
   }
 }

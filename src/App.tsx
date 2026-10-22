@@ -1,52 +1,76 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BubbleMap } from "./components/BubbleMap";
-import { ChainMosaic } from "./components/ChainMosaic";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { TokenIcon } from "./components/TokenIcon";
 import { Chart } from "./components/Chart";
-import { FxLayer } from "./components/Fx";
-import { HeroIntel } from "./components/HeroIntel";
-import { PulseHeat } from "./components/PulseHeat";
-import { StocksHeat } from "./components/StocksHeat";
-import { WalletChip, WalletSwap } from "./components/WalletSwap";
+import { Navigation, Launcher } from "./features/workspace/Navigation";
 import {
-  axiomUrl,
+  MODULES,
+  useWorkspace,
+  type ModuleId,
+} from "./features/workspace/store";
+import { isSolanaAddress, readLocal, saveLocal } from "./lib/validation";
+import { readTerminalLink } from "./lib/siteLink";
+const BubbleMap = lazy(() =>
+  import("./components/BubbleMap").then((m) => ({ default: m.BubbleMap })),
+);
+const ChainMosaic = lazy(() =>
+  import("./components/ChainMosaic").then((m) => ({ default: m.ChainMosaic })),
+);
+const PulseHeat = lazy(() =>
+  import("./components/PulseHeat").then((m) => ({ default: m.PulseHeat })),
+);
+const ToolHost = lazy(() => import("./features/workspace/ToolHost"));
+import { WalletChip, WalletSwap } from "./components/WalletSwap";
+import { walletWebsiteHref } from "./lib/siteLink";
+import {
+  ageLabel,
+  fetchAxiomFeed,
   fetchAxiomLive,
   fetchPulseLaunches,
-  fetchRhCoinByAddress,
-  isPoolAddr,
-  prefetchCandles,
   searchAxioms,
   type AxiomCoin,
 } from "./lib/axiom";
 import {
-  fetchAssets,
-  fetchBlockNumber,
   fetchBlocks,
-  fetchChainTokens,
-  fetchCorpActions,
-  fetchPrice,
-  fetchPrices,
   fetchStats,
-  fetchToken,
-  fetchTransfers,
-  fetchTxs,
-  rhAddress,
+  fetchTrades,
   type ChainBlock,
   type ChainStats,
-  type ChainToken,
-  type ChainTx,
-  type RhAsset,
-  type RhQuote,
-  type TokenTransfer,
+  type Trade,
 } from "./lib/api";
-import { armAudio, sfx } from "./lib/audio";
-import { CHAIN_ID, DEFAULT_WATCH, EXPLORER } from "./lib/const";
-import { fmtInt, fmtQty, fmtUsd, mid, shortAddr } from "./lib/format";
+import { EXPLORER } from "./lib/const";
+import { fmtUsd, fmtQty, shortAddr } from "./lib/format";
+import {
+  PreferencesProvider,
+  usePreferences,
+  featureEnabled,
+  THEME,
+  accentInk,
+} from "./features/preferences/preferences";
+import { armAudio } from "./lib/audio";
+import type { SpotTick } from "./lib/poolStream";
+import { isExtension } from "./lib/env";
+import "./terminal.css";
+import "./features/workspace/workspace.css";
+import "./features/preferences/customization.css";
 
-type Log = { t: string; s: string; k?: "ok" | "err" };
-
-type Pane = "PULSE" | "STOCKS" | "CHAIN" | "BUBBLE" | "FLOW" | "SWAP";
-
-export default function App({
+const errorText = (e: unknown) =>
+  e instanceof Error ? e.message : "Data unavailable";
+const change = (v?: number) =>
+  v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+type AppProps = {
+  active?: boolean;
+  lit?: boolean;
+  mode?: "desk" | "popup";
+  onLeave?: () => void;
+};
+export default function App(props: AppProps) {
+  return (
+    <PreferencesProvider>
+      <Terminal {...props} />
+    </PreferencesProvider>
+  );
+}
+function Terminal({
   active = true,
   lit = false,
   mode = "desk",
@@ -57,899 +81,1206 @@ export default function App({
   mode?: "desk" | "popup";
   onLeave?: () => void;
 }) {
-  const compact = mode === "popup";
-  const [tab, setTab] = useState<Pane>("STOCKS");
-  const [launches, setLaunches] = useState<AxiomCoin[]>([]);
-  const [pulseLoading, setPulseLoading] = useState(true);
-  const [assets, setAssets] = useState<RhAsset[]>([]);
-  const [chainTokens, setChainTokens] = useState<ChainToken[]>([]);
-  const [quotes, setQuotes] = useState<Map<string, RhQuote>>(new Map());
-  const [symbol, setSymbol] = useState("");
-  const [armed, setArmed] = useState(false);
-  const [stats, setStats] = useState<ChainStats | null>(null);
-  const [txs, setTxs] = useState<ChainTx[]>([]);
-  const [blocks, setBlocks] = useState<ChainBlock[]>([]);
-  const [blockNo, setBlockNo] = useState(0);
-  const [onchain, setOnchain] = useState<ChainToken | null>(null);
-  const [transfers, setTransfers] = useState<TokenTransfer[]>([]);
-  const [query, setQuery] = useState("");
-  const [axiomHits, setAxiomHits] = useState<AxiomCoin[]>([]);
-  const [axiomCoin, setAxiomCoin] = useState<AxiomCoin | null>(null);
-  const [omniOn, setOmniOn] = useState(false);
-  const [logs, setLogs] = useState<Log[]>([
-    { t: "SYS", s: "Fable 5.1 online — fastest and most accurate. Search a market when you are ready.", k: "ok" },
+  const workspace = useWorkspace();
+  const { preferences: prefs, storageError: preferenceError } =
+    usePreferences();
+  const theme = THEME[prefs.theme];
+  useEffect(() => {
+    if (!featureEnabled(workspace.state.active, prefs))
+      workspace.open("settings");
+    if (workspace.state.pinned.some((id) => !featureEnabled(id, prefs)))
+      workspace.setState((s) => ({
+        ...s,
+        pinned: s.pinned.filter((id) => featureEnabled(id, prefs)),
+      }));
+  }, [
+    prefs.tradeFeed,
+    prefs.holderTools,
+    prefs.creationTools,
+    workspace.state.active,
   ]);
-  const [res, setRes] = useState({ w: 0, h: 0 });
-  const [corpActions, setCorpActions] = useState<Array<{ tokenSymbol: string; type: string; status: string }>>([]);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const outRef = useRef<HTMLDivElement>(null);
-
-  const log = (t: string, s: string, k?: "ok" | "err") => {
-    setLogs((prev) => [...prev.slice(-80), { t, s, k }]);
-  };
-
-  const assetMap = useMemo(() => {
-    const m = new Map<string, RhAsset>();
-    assets.forEach((a) => m.set(a.tokenSymbol.toUpperCase(), a));
-    return m;
-  }, [assets]);
-
-  const asset = assetMap.get(symbol.toUpperCase());
-  const quote = quotes.get(symbol.toUpperCase());
-  const chainHit = chainTokens.find((t) => t.symbol?.toUpperCase() === symbol.toUpperCase());
-  const px = armed && axiomCoin?.priceUsd
-    ? axiomCoin.priceUsd
-    : tab === "STOCKS"
-      ? mid(quote?.bid, quote?.ask)
-      : Number(onchain?.exchange_rate ?? chainHit?.exchange_rate);
-  const lo = Number(quote?.dailyLow);
-  const chg = armed && axiomCoin
-    ? axiomCoin.change24h ?? axiomCoin.change1h ?? NaN
-    : quote?.change24h != null
-      ? quote.change24h
-      : Number.isFinite(px) && Number.isFinite(lo) && lo > 0
-        ? ((px - lo) / lo) * 100
-        : NaN;
-
+  const [launcher, setLauncher] = useState(false);
+  const panel =
+    workspace.state.active === "terminal"
+      ? (workspace.state.pinned[0] ?? null)
+      : workspace.state.active;
+  const tab = panel ?? "terminal";
+  const showChart =
+    workspace.state.active === "terminal" && !workspace.state.maximized;
+  const [filter, setFilter] = useState("");
+  const [watchOnly, setWatchOnly] = useState(false);
+  const [marketWatch, setMarketWatch] = useState<string[]>(() =>
+    readLocal(
+      "part.marketWatch.v1",
+      (raw) =>
+        Array.isArray(raw) ? raw.filter(isSolanaAddress).slice(0, 100) : [],
+      [],
+    ),
+  );
+  const [socialTab, setSocialTab] = useState(false);
+  const [markets, setMarkets] = useState<AxiomCoin[]>([]);
+  const [newCoins, setNewCoins] = useState<AxiomCoin[]>([]);
+  const [coin, setCoin] = useState<AxiomCoin | null>(null);
+  const [liveSpot, setLiveSpot] = useState<SpotTick | null>(null);
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<AxiomCoin[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hitIndex, setHitIndex] = useState(0);
+  const [feedError, setFeedError] = useState("");
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedRetry, setFeedRetry] = useState(0);
+  const [newError, setNewError] = useState("");
+  const [newLoading, setNewLoading] = useState(false);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradeError, setTradeError] = useState("");
+  const [tradeLoading, setTradeLoading] = useState(false);
+  const [stats, setStats] = useState<ChainStats | null>(null);
+  const [blocks, setBlocks] = useState<ChainBlock[]>([]);
+  const [networkError, setNetworkError] = useState("");
+  const [quoteError, setQuoteError] = useState("");
+  const [updated, setUpdated] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const [sort, setSort] = useState<"volume" | "change" | "liquidity">("volume");
   useEffect(() => {
-    const on = () => {
-      setRes({ w: window.innerWidth, h: window.innerHeight });
-    };
-    on();
-    window.addEventListener("resize", on);
-    return () => {
-      window.removeEventListener("resize", on);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    let live = true;
-    void (async () => {
-      try {
-        const a = await fetchAssets();
-        if (!live) return;
-        setAssets(a);
-        const want = DEFAULT_WATCH.filter((x) => a.some((z) => z.tokenSymbol === x));
-        const priced = (want.length ? want : a.slice(0, 12).map((z) => z.tokenSymbol))
-          .map((sym) => {
-            const hit = a.find((z) => z.tokenSymbol === sym);
-            const address = hit ? rhAddress(hit) : undefined;
-            return hit && address ? { symbol: sym, address } : null;
-          })
-          .filter((x): x is { symbol: string; address: string } => Boolean(x));
-        const q = await fetchPrices(priced);
-        if (!live) return;
-        setQuotes(q);
-        q.forEach((quote) => {
-          if (quote.pairAddress) prefetchCandles(quote.pairAddress, ["15m", "1m"]);
-        });
-        log("NET", `registry ${a.length} RH tokens`, "ok");
-      } catch (e) {
-        if (live) log("ERR", String(e), "err");
-      }
-    })();
-    void Promise.allSettled([fetchStats(), fetchTxs(), fetchBlocks(), fetchChainTokens(), fetchCorpActions()]).then(
-      (settled) => {
-        if (!live) return;
-        const val = <T,>(i: number, fallback: T) =>
-          settled[i].status === "fulfilled" ? (settled[i] as PromiseFulfilledResult<T>).value : fallback;
-        setStats(val(0, null));
-        setTxs(val(1, []));
-        setBlocks(val(2, []));
-        setChainTokens(val(3, []));
-        const ca = val(4, { corpActions: [] as Array<{ tokenSymbol: string; type: string; status: string }> });
-        setCorpActions(ca.corpActions ?? []);
-      }
-    );
-    return () => {
-      live = false;
-    };
-  }, [active]);
-
-  useEffect(() => {
-    if (!active) return;
-    const tick = async () => {
-      const settled = await Promise.allSettled([fetchStats(), fetchTxs(), fetchBlocks(), fetchBlockNumber()]);
-      if (settled[0].status === "fulfilled") setStats(settled[0].value);
-      if (settled[1].status === "fulfilled") setTxs(settled[1].value);
-      if (settled[2].status === "fulfilled") setBlocks(settled[2].value);
-      if (settled[3].status === "fulfilled") setBlockNo(settled[3].value);
-    };
-    tick();
-    const id = setInterval(tick, 5000);
-    return () => clearInterval(id);
-  }, [active]);
-
-  useEffect(() => {
-    if (!active) return;
-    const watch = DEFAULT_WATCH.map((s) => {
-      const a = assetMap.get(s);
-      const address = a ? rhAddress(a) : undefined;
-      return a && address ? { symbol: s, address } : null;
-    }).filter((x): x is { symbol: string; address: string } => Boolean(x));
-    const id = setInterval(async () => {
-      try {
-        const q = await fetchPrices(watch);
-        setQuotes((prev) => {
-          const next = new Map(prev);
-          q.forEach((v, k) => next.set(k, v));
-          return next;
-        });
-      } catch {
-        /* ignore */
-      }
-    }, 12000);
-    return () => clearInterval(id);
-  }, [active, assetMap]);
-
-  useEffect(() => {
-    if (!active || tab !== "STOCKS" || !assets.length) return;
-    const extra = assets.slice(0, 24)
-      .map((a) => {
-        const address = rhAddress(a);
-        return address ? { symbol: a.tokenSymbol, address } : null;
-      })
-      .filter((x): x is { symbol: string; address: string } => Boolean(x));
-    void fetchPrices(extra).then((q) => {
-      setQuotes((prev) => {
-        const next = new Map(prev);
-        q.forEach((v, k) => next.set(k, v));
-        return next;
-      });
-    });
-  }, [active, tab, assets]);
-
-  useEffect(() => {
-    if (!active) return;
-    let live = true;
+    if (
+      !active ||
+      (!(
+        ["markets", "trends"].includes(tab) && !(tab === "trends" && socialTab)
+      ) &&
+        !open)
+    )
+      return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
     const run = async () => {
       try {
-        const stockSymbols = assets.length ? assets.map((a) => a.tokenSymbol) : DEFAULT_WATCH;
-        const stockAddresses = assets
-          .map((a) => rhAddress(a))
-          .filter((x): x is string => Boolean(x));
-        const rows = await fetchPulseLaunches({ stockSymbols, stockAddresses });
-        if (!live) return;
-        setLaunches(rows);
-      } catch {
-        /* keep last pulse */
+        const rows = await fetchAxiomFeed();
+        if (!stopped) {
+          setMarkets(rows);
+          setFeedError("");
+        }
+      } catch (e) {
+        if (!stopped) setFeedError(errorText(e));
       } finally {
-        if (live) setPulseLoading(false);
+        if (!stopped) {
+          setFeedLoading(false);
+          timer = setTimeout(run, 60000);
+        }
       }
     };
     void run();
-    const id = setInterval(run, 10000);
     return () => {
-      live = false;
-      clearInterval(id);
+      stopped = true;
+      clearTimeout(timer);
     };
-  }, [active, assets]);
-
+  }, [active, feedRetry, tab, open, socialTab]);
   useEffect(() => {
-    if (!active || !symbol) return;
-    let stop = false;
+    if (!active || !["new", "pulse"].includes(tab)) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    setNewLoading(true);
     const run = async () => {
       try {
-        const q = await fetchPrice(
-          symbol,
-          assetMap.get(symbol.toUpperCase())
-            ? rhAddress(assetMap.get(symbol.toUpperCase())!)
-            : chainTokens.find((t) => t.symbol?.toUpperCase() === symbol.toUpperCase())?.address_hash
-        );
-        if (q && !stop) {
-          setQuotes((prev) => new Map(prev).set(symbol.toUpperCase(), q));
-        }
-        const a = assetMap.get(symbol.toUpperCase());
-        const addr = a ? rhAddress(a) : chainTokens.find((t) => t.symbol?.toUpperCase() === symbol.toUpperCase())?.address_hash;
-        if (addr) {
-          const [tok, tr] = await Promise.all([fetchToken(addr), fetchTransfers(addr)]);
-          if (!stop) {
-            setOnchain(tok);
-            setTransfers(tr);
-          }
-        } else {
-          setOnchain(null);
-          setTransfers([]);
+        const rows = await fetchPulseLaunches();
+        if (!stopped) {
+          setNewCoins(rows);
+          setNewError("");
         }
       } catch (e) {
-        if (!stop) log("ERR", String(e), "err");
+        if (!stopped) setNewError(errorText(e));
+      } finally {
+        if (!stopped) {
+          setNewLoading(false);
+          timer = setTimeout(run, 60000);
+        }
       }
     };
-    run();
-    const id = setInterval(run, 6000);
+    void run();
     return () => {
-      stop = true;
-      clearInterval(id);
+      stopped = true;
+      clearTimeout(timer);
     };
-  }, [symbol, active, assetMap, chainTokens]);
-
+  }, [active, tab, feedRetry]);
+  useEffect(() => {
+    if (!active || tab !== "network") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const run = async () => {
+      const result = await Promise.allSettled([fetchStats(), fetchBlocks()]);
+      if (stopped) return;
+      if (result[0].status === "fulfilled") setStats(result[0].value);
+      if (result[1].status === "fulfilled") setBlocks(result[1].value);
+      setNetworkError(
+        result.some((r) => r.status === "rejected")
+          ? "Public RPC is unavailable or rate limited. Retrying…"
+          : "",
+      );
+      timer = setTimeout(run, 30000);
+    };
+    void run();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [active, tab]);
   useEffect(() => {
     if (!active) return;
-    let live = true;
-    const q = query.trim();
-    const t = setTimeout(() => {
-      void (async () => {
-        try {
-          if (!q) {
-            setAxiomHits([]);
-            return;
-          }
-          const needle = q.toLowerCase();
-          const local: AxiomCoin[] = assets
-            .filter((a) => {
-              const sym = a.tokenSymbol.toLowerCase();
-              const name = a.tokenName.toLowerCase();
-              const addr = rhAddress(a)?.toLowerCase();
-              return sym.includes(needle) || name.includes(needle) || (needle.startsWith("0x") && addr === needle);
-            })
-            .slice(0, 12)
-            .map((a) => {
-              const quote = quotes.get(a.tokenSymbol.toUpperCase());
-              const address = rhAddress(a) ?? "";
-              const px = quote ? mid(quote.bid, quote.ask) : 0;
-              return {
-                symbol: a.tokenSymbol,
-                name: a.tokenName,
-                address,
-                pairAddress: "",
-                chainId: "robinhood",
-                dex: quote?.dex ?? "robinhood",
-                logo: a.logoUrl,
-                priceUsd: Number.isFinite(px) ? px : 0,
-                change24h: quote?.change24h,
-                change1h: quote?.change1h,
-                liquidityUsd: quote?.liquidityUsd,
-                volume24h: quote ? Number(quote.dailyTradingVolume) : undefined,
-              } satisfies AxiomCoin;
-            });
-          let remote: AxiomCoin[] = [];
-          try {
-            remote = await searchAxioms(q);
-          } catch (e) {
-            if (live) log("ERR", String(e), "err");
-          }
-          if (!live) return;
-          const seen = new Set<string>();
-          const hits: AxiomCoin[] = [];
-          for (const c of [...remote, ...local]) {
-            const k = (c.address || c.symbol).toLowerCase();
-            if (seen.has(k)) continue;
-            seen.add(k);
-            hits.push(c);
-          }
-          setAxiomHits(hits);
-          hits.slice(0, 6).forEach((c) => {
-            if (c.pairAddress) prefetchCandles(c.pairAddress);
-          });
-          if (hits.length) sfx.found();
-        } catch (e) {
-          if (live) log("ERR", String(e), "err");
-        }
-      })();
-    }, 24);
+    let stopped = false;
+    setHits([]);
+    setHitIndex(0);
+    setSearchError("");
+    if (!query.trim()) {
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(() => {
+      void searchAxioms(query)
+        .then((rows) => {
+          if (!stopped) setHits(rows);
+        })
+        .catch((e) => {
+          if (!stopped) setSearchError(errorText(e));
+        })
+        .finally(() => {
+          if (!stopped) setSearching(false);
+        });
+    }, 300);
     return () => {
-      live = false;
-      clearTimeout(t);
+      stopped = true;
+      clearTimeout(timer);
     };
-  }, [active, query, assets]);
-
+  }, [active, query]);
   useEffect(() => {
-    if (!active || !axiomCoin) return;
-    let stop = false;
+    if (!active || !coin || !showChart || !prefs.liveUpdates) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const selected = coin;
     const run = async () => {
       try {
-        const live = await fetchAxiomLive(axiomCoin);
-        if (stop) return;
-        setAxiomCoin(live);
+        const row = await fetchAxiomLive(selected);
+        if (!stopped) {
+          setCoin(row);
+          setUpdated(Date.now());
+          setQuoteError("");
+        }
       } catch {
-        /* keep last */
+        if (!stopped) setQuoteError("Price feed delayed");
+      } finally {
+        if (!stopped) timer = setTimeout(run, prefs.refreshSeconds * 1000);
       }
     };
-    run();
-    const id = setInterval(run, 2000);
+    void run();
     return () => {
-      stop = true;
-      clearInterval(id);
+      stopped = true;
+      clearTimeout(timer);
     };
-  }, [active, tab, axiomCoin?.address, axiomCoin?.pairAddress]);
-
-  const selectAxiom = (coin: AxiomCoin) => {
-    setArmed(true);
-    setAxiomCoin(coin);
-    setSymbol(coin.symbol.toUpperCase());
-    setQuery(coin.symbol);
-    setOmniOn(false);
-    const ivs =
-      coin.createdAt && Date.now() - coin.createdAt < 8 * 3600_000 ? ["1m", "5m", "15m"] : ["15m"];
-    if (isPoolAddr(coin.pairAddress)) prefetchCandles(coin.pairAddress, ivs);
-    sfx.select();
-    log("AXM", `${coin.symbol}  ${coin.chainId}  ${coin.name}`, "ok");
-    if (coin.address) {
-      void fetchRhCoinByAddress(coin.address).then((c) => {
-        if (!c) return;
-        const pool = isPoolAddr(coin.pairAddress) ? coin.pairAddress : c.pairAddress;
-        const next = {
-          ...c,
-          pairAddress: pool,
-          createdAt: Math.max(coin.createdAt ?? 0, c.createdAt ?? 0) || c.createdAt || coin.createdAt,
-        };
-        setAxiomCoin(next);
-        if (isPoolAddr(next.pairAddress)) prefetchCandles(next.pairAddress, ivs);
-      });
-    }
-  };
-
-  const pickPulse = (coin: AxiomCoin) => {
-    setTab("PULSE");
-    selectAxiom(coin);
-  };
-
-  const select = (sym: string, source: "STOCKS" | "CHAIN" | "BUBBLE" = "STOCKS") => {
-    setTab(source);
-    setArmed(true);
-    setSymbol(sym.toUpperCase());
-    sfx.select();
-    log("SEL", `${source} ${sym.toUpperCase()}`, "ok");
-    const a = assetMap.get(sym.toUpperCase());
-    const q = quotes.get(sym.toUpperCase());
-    const address = a
-      ? rhAddress(a)
-      : chainTokens.find((t) => t.symbol?.toUpperCase() === sym.toUpperCase())?.address_hash;
-    if (address || q?.pairAddress) {
-      setAxiomCoin({
-        symbol: sym.toUpperCase(),
-        name: a?.tokenName ?? sym.toUpperCase(),
-        address: address ?? "",
-        pairAddress: q?.pairAddress ?? "",
-        chainId: "robinhood",
-        dex: q?.dex ?? "uniswap",
-        logo: a?.logoUrl,
-        priceUsd: Number.isFinite(mid(q?.bid, q?.ask)) ? mid(q?.bid, q?.ask) : 0,
-        change24h: q?.change24h,
-        liquidityUsd: q?.liquidityUsd,
-        volume24h: q ? Number(q.dailyTradingVolume) : undefined,
-      });
-      if (q?.pairAddress) prefetchCandles(q.pairAddress, ["1m", "15m"]);
-    }
-    if (address) {
-      void fetchRhCoinByAddress(address).then((c) => {
-        if (c) {
-          setAxiomCoin(c);
-          prefetchCandles(c.pairAddress, ["1m", "15m"]);
+  }, [
+    active,
+    showChart,
+    prefs.liveUpdates,
+    prefs.refreshSeconds,
+    coin?.address,
+    coin?.pairAddress,
+  ]);
+  useEffect(() => {
+    setTrades([]);
+    setTradeError("");
+    if (!active || !coin || tab !== "flow") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    setTradeLoading(true);
+    const selected = coin;
+    const run = async () => {
+      try {
+        const rows = await fetchTrades(
+          selected.pairAddress,
+          selected.address,
+          selected.priceUsd,
+        );
+        if (!stopped) {
+          setTrades(rows);
+          setTradeError("");
         }
+      } catch {
+        if (!stopped) setTradeError("Trade feed unavailable. Retrying…");
+      } finally {
+        if (!stopped) {
+          setTradeLoading(false);
+          timer = setTimeout(run, 30000);
+        }
+      }
+    };
+    void run();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [active, tab, coin?.address, coin?.pairAddress]);
+  useEffect(() => {
+    if (!active) return;
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setLauncher((v) => !v);
+        setOpen(false);
+        return;
+      }
+      if (e.key === "Escape") {
+        setLauncher(false);
+        setOpen(false);
+      }
+      if (
+        e.key === "/" &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        input.current?.focus();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [active]);
+  useEffect(() => {
+    saveLocal("part.marketWatch.v1", marketWatch);
+  }, [marketWatch]);
+  useEffect(() => {
+    const clear = () => {
+      setMarketWatch([]);
+      workspace.setState((s) => ({ ...s, selectedWallet: "" }));
+    };
+    window.addEventListener("part:clear-data", clear);
+    return () => window.removeEventListener("part:clear-data", clear);
+  }, []);
+  const selectionEpoch = useRef(0);
+  const [terminalLink] = useState(() =>
+    readTerminalLink(window.location.search),
+  );
+  const initialSelection = useRef({
+    mint: terminalLink.mint ?? workspace.state.selectedMint,
+    pool: terminalLink.mint ? "" : workspace.state.selectedPool,
+    fromLink: terminalLink.open,
+  });
+  useEffect(() => {
+    const saved = initialSelection.current;
+    if (saved.fromLink)
+      workspace.setState((s) => ({
+        ...s,
+        active: "terminal",
+        maximized: false,
+      }));
+    if (!saved.mint) return;
+    if (saved.fromLink) setQuoteError("Loading selected Solana token…");
+    let stopped = false;
+    const epoch = selectionEpoch.current;
+    void searchAxioms(saved.mint)
+      .then((rows) => {
+        const match =
+          rows.find(
+            (c) => c.address === saved.mint && c.pairAddress === saved.pool,
+          ) ?? rows.find((c) => c.address === saved.mint);
+        if (!stopped && epoch === selectionEpoch.current && match) {
+          setCoin(match);
+          setUpdated(Date.now());
+          setQuoteError("");
+          if (saved.fromLink)
+            workspace.setState((s) => ({
+              ...s,
+              selectedMint: match.address,
+              selectedPool: match.pairAddress,
+            }));
+        } else if (!stopped && epoch === selectionEpoch.current)
+          setQuoteError(
+            saved.fromLink
+              ? "Linked token unavailable. Search again."
+              : "Saved token unavailable. Search again.",
+          );
+      })
+      .catch(() => {
+        if (!stopped && epoch === selectionEpoch.current)
+          setQuoteError(
+            saved.fromLink
+              ? "Linked token could not be loaded. Search again."
+              : "Saved token could not be refreshed. Search again.",
+          );
       });
+    return () => {
+      stopped = true;
+    };
+  }, []);
+  const openModule = (id: ModuleId) => {
+    if (!featureEnabled(id, prefs)) {
+      workspace.open("settings");
+      return;
+    }
+    workspace.open(id);
+    if (id === "terminal")
+      workspace.setState((s) => ({ ...s, maximized: false }));
+  };
+  const pick = (c: AxiomCoin, target: ModuleId = "terminal") => {
+    if (c.chainId !== "solana") return;
+    selectionEpoch.current++;
+    setCoin(c);
+    workspace.setState((s) => ({
+      ...s,
+      selectedMint: c.address,
+      selectedPool: c.pairAddress,
+      active: target,
+      open: s.open.includes(target) ? s.open : [...s.open, target],
+      maximized: false,
+    }));
+    setQuery("");
+    setOpen(false);
+    setCopied(false);
+    setUpdated(Date.now());
+    setQuoteError("");
+  };
+  const selectMint = async (mint: string, target: ModuleId = "terminal") => {
+    if (!isSolanaAddress(mint)) return;
+    setSearchError("");
+    const epoch = ++selectionEpoch.current;
+    try {
+      const match = (await searchAxioms(mint)).find((c) => c.address === mint);
+      if (!match)
+        throw new Error("No indexed Solana pool found for this mint.");
+      if (epoch === selectionEpoch.current) pick(match, target);
+    } catch (e) {
+      if (epoch !== selectionEpoch.current) return;
+      setSearchError(errorText(e));
+      setQuery(mint);
+      setOpen(true);
+      input.current?.focus();
     }
   };
-
-  const corps = corpActions
-    .filter((c) => c.tokenSymbol === symbol)
-    .slice(0, 3)
-    .map((c) => `${c.type.replace("CORPORATE_ACTION_TYPE_", "")} ${c.status.replace("CORPORATE_ACTION_STATUS_", "")}`);
-  const addr = !armed
-    ? undefined
-    : axiomCoin?.address || (asset ? rhAddress(asset) : onchain?.address_hash);
-  const name = !armed
-    ? "awaiting query"
-    : axiomCoin?.name || asset?.tokenName || onchain?.name || chainHit?.name || "—";
-  const logo = !armed ? undefined : axiomCoin?.logo || asset?.logoUrl || onchain?.icon_url || chainHit?.icon_url;
-
-  const searchBox = (
-    <div className="chrome-cut" onMouseDown={() => searchRef.current?.focus()}>
-      <input
-        ref={searchRef}
-        type="text"
-        value={query}
-        placeholder="Name, ticker, or 0x…"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        onFocus={() => setOmniOn(true)}
-        onBlur={() => setTimeout(() => setOmniOn(false), 80)}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOmniOn(true);
-        }}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Enter" && axiomHits[0]) {
-            e.preventDefault();
-            selectAxiom(axiomHits[0]);
-          }
-          if (e.key === "Escape") {
-            setOmniOn(false);
-            searchRef.current?.blur();
-          }
-        }}
-      />
-      {omniOn && query.trim() && (
-        <div className="omni-drop">
-          {axiomHits.length === 0 ? (
-            <div className="miss">No matches</div>
-          ) : (
-            axiomHits.slice(0, 8).map((c) => (
-              <button
-                key={c.address || c.symbol}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  selectAxiom(c);
-                }}
-              >
-                {c.logo ? <img src={c.logo} alt="" /> : <span className="ph">{c.symbol.slice(0, 2)}</span>}
-                <b>{c.symbol}</b>
-                <em>{c.name}</em>
-                <span>{fmtUsd(c.priceUsd, c.priceUsd < 1 ? 4 : 2)}</span>
-              </button>
-            ))
+  const rows = (["new", "pulse"].includes(tab) ? newCoins : markets)
+    .filter(
+      (c) =>
+        (!watchOnly || marketWatch.includes(c.address)) &&
+        `${c.name} ${c.symbol} ${c.address}`
+          .toLowerCase()
+          .includes(filter.toLowerCase()),
+    )
+    .slice()
+    .sort((a, b) =>
+      ["new", "pulse"].includes(tab)
+        ? (b.createdAt ?? 0) - (a.createdAt ?? 0)
+        : sort === "change"
+          ? (b.change24h ?? -Infinity) - (a.change24h ?? -Infinity)
+          : sort === "liquidity"
+            ? (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0)
+            : (b.volume24h ?? 0) - (a.volume24h ?? 0),
+    );
+  const suggestions = query.trim() ? hits : markets.slice(0, 8);
+  return (
+    <div
+      data-theme={prefs.theme}
+      data-density={prefs.density}
+      data-text-size={prefs.textSize}
+      data-reduced-motion={prefs.reducedMotion}
+      data-artwork={prefs.tokenArtwork}
+      style={
+        {
+          "--accent": prefs.accent,
+          "--accent-ink": accentInk(prefs.accent),
+          "--trade-up": prefs.upColor,
+          "--trade-down": prefs.downColor,
+          "--desk-bg": theme.background,
+          "--desk-panel": theme.panel,
+          "--desk-raised": theme.raised,
+          "--desk-edge": theme.edge,
+          "--desk-text": theme.text,
+          "--desk-muted": theme.muted,
+        } as React.CSSProperties
+      }
+      className={`sol-terminal modular-terminal${workspace.state.maximized ? " maximized" : ""}${mode === "popup" ? " sol-compact" : ""}${lit ? " lit" : ""}`}
+      onPointerDown={() => armAudio()}
+    >
+      <header className="sol-header">
+        <div className="sol-brand">
+          <img
+            className="sol-brand-eye"
+            src={`${import.meta.env.BASE_URL}favicon.png`}
+            alt=""
+            width={34}
+            height={34}
+          />
+          PART
+          <span className="sol-network">
+            <i />
+            SOLANA
+          </span>
+        </div>
+        <div className="sol-search">
+          <span className="search-glyph">⌕</span>
+          <input
+            ref={input}
+            aria-label="Search Solana tokens"
+            role="combobox"
+            aria-expanded={open}
+            aria-controls="sol-search-results"
+            aria-autocomplete="list"
+            aria-activedescendant={
+              open && suggestions[hitIndex]
+                ? `sol-result-${hitIndex}`
+                : undefined
+            }
+            value={query}
+            placeholder="Search token or paste Solana mint…"
+            autoComplete="off"
+            spellCheck={false}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 120)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setOpen(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setOpen(false);
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHitIndex((i) =>
+                  Math.max(
+                    0,
+                    Math.min(i + 1, Math.min(suggestions.length, 10) - 1),
+                  ),
+                );
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHitIndex((i) => Math.max(i - 1, 0));
+              }
+              if (e.key === "Enter" && suggestions[hitIndex])
+                pick(suggestions[hitIndex]);
+            }}
+          />
+          <kbd>/</kbd>
+          {open && (
+            <div
+              className="sol-search-results"
+              id="sol-search-results"
+              role="listbox"
+            >
+              <div className="search-caption">
+                {query.trim() ? "SOLANA RESULTS" : "DISCOVER SOLANA"}
+                <span>
+                  {searching ? "Searching…" : `${suggestions.length} tokens`}
+                </span>
+              </div>
+              {searchError ? (
+                <p role="alert">{searchError}</p>
+              ) : !searching && !suggestions.length ? (
+                <p>No Solana markets found. Try a mint address.</p>
+              ) : (
+                suggestions.slice(0, 10).map((c, i) => (
+                  <button
+                    key={c.address}
+                    id={`sol-result-${i}`}
+                    role="option"
+                    aria-selected={i === hitIndex}
+                    className={i === hitIndex ? "selected" : ""}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(c)}
+                  >
+                    <TokenIcon coin={c} />
+                    <span>
+                      <b>{c.symbol}</b>
+                      <small>
+                        {c.name} · {shortAddr(c.address)}
+                      </small>
+                    </span>
+                    <span>
+                      <b>{fmtUsd(c.priceUsd)}</b>
+                      <small>
+                        Liq {fmtUsd(c.liquidityUsd)} · {c.dex}
+                      </small>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
           )}
         </div>
-      )}
-    </div>
-  );
-
-  const tapeRows = (armed && transfers.length ? transfers : txs).slice(0, 40).map((item, i) => {
-    if ("hash" in item) {
-      const tx = item as ChainTx;
-      return (
-        <div
-          className="tx click"
-          key={tx.hash + i}
-          onClick={() => window.open(`${EXPLORER}/tx/${tx.hash}`, "_blank")}
-        >
-          <span>{tx.timestamp.slice(11, 19)}</span>
-          <span className="wallets">
-            <button
-              title={tx.from.hash}
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(`${EXPLORER}/address/${tx.from.hash}`, "_blank");
-              }}
-            >
-              {shortAddr(tx.from.hash)}
-            </button>
-            <i>→</i>
-            <button
-              title={tx.to?.hash ?? ""}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (tx.to?.hash) window.open(`${EXPLORER}/address/${tx.to.hash}`, "_blank");
-              }}
-            >
-              {shortAddr(tx.to?.hash)}
-            </button>
-          </span>
-          <span className={tx.status === "ok" ? "up" : "dn"}>{tx.status}</span>
-        </div>
-      );
-    }
-    const tr = item as TokenTransfer;
-    const val = tr.total ? Number(tr.total.value) / 10 ** Number(tr.total.decimals ?? 18) : 0;
-    const hash = tr.tx_hash || tr.transaction_hash;
-    return (
-      <div
-        className="tx click"
-        key={(hash || i) + String(i)}
-        onClick={() => hash && window.open(`${EXPLORER}/tx/${hash}`, "_blank")}
-      >
-        <span>{tr.timestamp?.slice(11, 19)}</span>
-        <span className="wallets">
+        <div className="sol-header-actions">
           <button
-            title={tr.from.hash}
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(`${EXPLORER}/address/${tr.from.hash}`, "_blank");
-            }}
+            className="add-panel-button"
+            onClick={() => setLauncher(true)}
           >
-            {shortAddr(tr.from.hash)}
+            Add Panel <kbd>⌘ K</kbd>
           </button>
-          <i>→</i>
           <button
-            title={tr.to.hash}
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(`${EXPLORER}/address/${tr.to.hash}`, "_blank");
-            }}
+            className="settings-shortcut"
+            aria-label="Open settings"
+            onClick={() => openModule("settings")}
           >
-            {shortAddr(tr.to.hash)}
+            Settings
           </button>
-        </span>
-        <span className="up">{fmtQty(val)}</span>
-      </div>
-    );
-  });
-
-  const swapCoin =
-    !armed
-      ? null
-      : axiomCoin && (!addr || axiomCoin.address.toLowerCase() === addr.toLowerCase())
-        ? axiomCoin
-        : addr
-          ? {
-              symbol,
-              name,
-              address: addr,
-              pairAddress: axiomCoin?.pairAddress ?? "",
-              chainId: "robinhood" as const,
-              dex: axiomCoin?.dex ?? "uniswap",
-              logo: logo || undefined,
-              priceUsd: Number.isFinite(px) ? px : 0,
-            }
-          : axiomCoin;
-
-  if (compact) {
-    return (
-      <div className="world compact" onMouseDown={() => armAudio()} onKeyDown={() => armAudio()}>
-        <div className="shell lit">
-          <header className="deck-bar">
-            <div className="deck-brand">
-              <span className="deck-word">PART</span>
-              <span className="land-star" aria-hidden />
-            </div>
+          {isExtension() ? (
+            <a
+              className="wallet-chip extension-wallet-link"
+              href={walletWebsiteHref(coin?.address, prefs.astraBackend)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open PART in a website tab to connect your Solana wallet"
+            >
+              Wallet on site ↗
+            </a>
+          ) : (
             <WalletChip />
-          </header>
-          <div className="compact-search">{searchBox}</div>
-          <div className="compact-token">
-            {logo ? <img src={logo} alt="" /> : <div className="ph">{(symbol || "PRT").slice(0, 3)}</div>}
-            <div>
-              <h1>{armed ? symbol : "PART"}</h1>
-              <p>{name}</p>
-            </div>
-            <div className="px-xl">
-              <strong className={chg >= 0 ? "up" : "dn"}>{armed && Number.isFinite(px) ? fmtUsd(px) : "—"}</strong>
-              <span className={chg >= 0 ? "up" : "dn"}>
-                {armed && Number.isFinite(chg) ? `${chg >= 0 ? "+" : "−"} ${Math.abs(chg).toFixed(2)}%` : "idle"}
-              </span>
-            </div>
-          </div>
-          <div className="compact-chart">
-            {armed ? (
-              <Chart
-                pool={axiomCoin?.pairAddress}
-                token={addr}
-                last={Number.isFinite(px) ? px : undefined}
-                bornAt={axiomCoin?.createdAt}
-              />
-            ) : (
-              <div className="await-chart">Search a market</div>
-            )}
-          </div>
-          <HeroIntel
-            compact
-            armed={armed}
-            symbol={symbol}
-            stock={Boolean(asset)}
-            halt={Boolean(quote?.isTradingHalt)}
-            coin={axiomCoin}
-            volume={axiomCoin?.volume24h ?? Number(quote?.dailyTradingVolume)}
-            liquidity={axiomCoin?.liquidityUsd ?? quote?.liquidityUsd}
-            holders={axiomCoin?.holders ?? Number(onchain?.holders_count)}
-          />
-          <div className="tabs">
-            <button className={tab === "STOCKS" ? "on" : ""} onClick={() => setTab("STOCKS")}>
-              Stocks
-            </button>
-            <button className={tab === "PULSE" ? "on" : ""} onClick={() => setTab("PULSE")}>
-              Pulse
-            </button>
-            <button className={tab === "CHAIN" ? "on" : ""} onClick={() => setTab("CHAIN")}>
-              Blocks
-            </button>
-            <button className={tab === "BUBBLE" ? "on" : ""} onClick={() => setTab("BUBBLE")}>
-              Map
-            </button>
-            <button className={tab === "FLOW" ? "on" : ""} onClick={() => setTab("FLOW")}>
-              Flow
-            </button>
-            <button className={tab === "SWAP" ? "on" : ""} onClick={() => setTab("SWAP")}>
-              Swap
-            </button>
-          </div>
-          <div className="compact-pane">
-            {tab === "PULSE" && <PulseHeat coins={launches} loading={pulseLoading} onPick={pickPulse} />}
-            {tab === "STOCKS" && (
-              <StocksHeat assets={assets} quotes={quotes} corps={corpActions} onPick={(s) => select(s, "STOCKS")} />
-            )}
-            {tab === "CHAIN" && (
-              <ChainMosaic blocks={blocks} stats={stats} tokens={chainTokens} onPick={(s) => select(s, "CHAIN")} />
-            )}
-            {tab === "BUBBLE" && (
-              <BubbleMap
-                token={armed ? addr : undefined}
-                pool={armed ? axiomCoin?.pairAddress : undefined}
-                symbol={armed ? symbol : undefined}
-              />
-            )}
-            {tab === "FLOW" && (
-              <div className="floor-tape">
-                <div className="tape-head">
-                  <span>time</span>
-                  <span>from → to</span>
-                  <span>amt</span>
-                </div>
-                <div className="tape">{tapeRows}</div>
-              </div>
-            )}
-            {tab === "SWAP" && <WalletSwap coin={swapCoin} onLog={log} />}
-          </div>
-          <footer className="deck-foot">
-            <div className="cli">
-              <div className="cli-out" ref={outRef}>
-                {logs.slice(-1).map((l, i) => (
-                  <div key={i} className={l.k ?? ""}>
-                    [{l.t}] {l.s}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </footer>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="world" onMouseDown={() => armAudio()} onKeyDown={() => armAudio()}>
-      <FxLayer />
-      <div className={`shell${lit ? " lit" : ""}`}>
-        <header className="deck-bar">
-          <div className="deck-brand">
-            <span className="deck-word">PART</span>
-            <span className="land-star" aria-hidden />
-          </div>
-          <div className="ticker">
-            <div className="ticker-track">
-              {[...quotes.entries(), ...quotes.entries()].map(([sym, q], i) => {
-                const p = mid(q.bid, q.ask);
-                const d = q.change24h ?? (Number(q.dailyLow) ? ((p - Number(q.dailyLow)) / Number(q.dailyLow)) * 100 : 0);
-                return (
-                  <span className="tick" key={`${sym}-${i}`}>
-                    <b>{sym}</b>
-                    <span>{fmtUsd(p)}</span>
-                    <span className={d >= 0 ? "up" : "dn"}>
-                      {d >= 0 ? "+" : "−"} {Math.abs(Number(d)).toFixed(2)}%
-                    </span>
-                    <span>vol {fmtUsd(q.dailyTradingVolume)}</span>
-                  </span>
+          )}
+          {isExtension() && mode === "popup" && (
+            <button
+              className="extension-desk-button"
+              onClick={() => {
+                const deskUrl = new URL(
+                  "popup.html?view=desk",
+                  window.location.href,
                 );
-              })}
-              {stats && (
-                <span className="tick">
-                  <b>ETH</b> {fmtUsd(stats.coin_price)} · chain {CHAIN_ID} · blk {fmtInt(blockNo || Number(stats.total_blocks))}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="deck-tools">
-            <span className="live">
-              <i /> Live
-            </span>
-            <WalletChip />
-            {onLeave && (
-              <button type="button" className="leave-desk" onClick={onLeave}>
-                House
-              </button>
-            )}
-          </div>
-        </header>
-
-        <div className="deck">
-          <aside className="rail">
-            <section className="panel search-panel">
-              <div className="hd">
-                <span>
-                  <b>Search</b> a market
-                </span>
-                <span>{armed ? symbol : "idle"}</span>
-              </div>
-              {searchBox}
-            </section>
-
-            <section className="panel token-panel">
-              <div className="token-head">
-                <div className="token-who">
-                  {logo ? <img src={logo} alt="" /> : <div className="ph">{(symbol || "PRT").slice(0, 3)}</div>}
-                  <div>
-                    <h1>{armed ? symbol : "PART"}</h1>
-                    <p>
-                      {name}
-                      {armed && axiomCoin ? ` · ${axiomCoin.dex}` : ""}
-                      {quote?.isTradingHalt ? <span className="halt"> · halt</span> : ""}
-                    </p>
-                  </div>
-                </div>
-                <div className="px-xl">
-                  <strong className={chg >= 0 ? "up" : "dn"}>{armed && Number.isFinite(px) ? fmtUsd(px) : "—"}</strong>
-                  <span className={chg >= 0 ? "up" : "dn"}>
-                    {armed && Number.isFinite(chg) ? `${chg >= 0 ? "+" : "−"} ${Math.abs(chg).toFixed(2)}% 24h` : "awaiting a pick"}
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            <section className="panel intel-panel">
-              <div className="intel">
-                <div className="kv">
-                  <em>delta</em>
-                  <b className={chg >= 0 ? "up" : "dn"}>{Number.isFinite(chg) ? `${chg.toFixed(2)}%` : "—"}</b>
-                  <small>
-                    5m {axiomCoin?.change5m != null ? `${axiomCoin.change5m.toFixed(2)}%` : "—"} · 1h{" "}
-                    {(axiomCoin?.change1h ?? quote?.change1h) != null
-                      ? `${(axiomCoin?.change1h ?? quote?.change1h)!.toFixed(2)}%`
-                      : "—"}
-                  </small>
-                </div>
-                <div className="kv">
-                  <em>volume</em>
-                  <b>{fmtUsd(axiomCoin?.volume24h ?? quote?.dailyTradingVolume ?? onchain?.volume_24h)}</b>
-                  <small>
-                    liq {fmtUsd(axiomCoin?.liquidityUsd ?? quote?.liquidityUsd)} · {axiomCoin?.dex || quote?.dex || "—"}
-                  </small>
-                </div>
-                <div className="kv">
-                  <em>mcap</em>
-                  <b>{fmtUsd(axiomCoin?.mcap ?? quote?.fdv)}</b>
-                  <small>holders {axiomCoin?.holders != null ? fmtInt(axiomCoin.holders) : fmtInt(onchain?.holders_count)}</small>
-                </div>
-                <div className="kv">
-                  <em>contract</em>
-                  <b
-                    onClick={() => {
-                      if (axiomCoin) window.open(axiomUrl(axiomCoin), "_blank");
-                      else if (addr) window.open(`${EXPLORER}/token/${addr}`, "_blank");
-                    }}
-                    title={addr}
-                  >
-                    {shortAddr(addr)}
-                  </b>
-                  <small>
-                    {axiomCoin ? "uniswap · robinhood" : asset ? `mult ${Number(asset.currentMultiplier).toFixed(4)}` : "erc-20"}
-                    {corps[0] ? ` · ${corps[0]}` : ""}
-                  </small>
-                </div>
-              </div>
-            </section>
-
-            <section className="panel swap-panel">
-              <WalletSwap
-                coin={
-                  !armed
-                    ? null
-                    : axiomCoin && (!addr || axiomCoin.address.toLowerCase() === addr.toLowerCase())
-                      ? axiomCoin
-                      : addr
-                        ? {
-                            symbol,
-                            name,
-                            address: addr,
-                            pairAddress: axiomCoin?.pairAddress ?? "",
-                            chainId: "robinhood",
-                            dex: axiomCoin?.dex ?? "uniswap",
-                            logo: logo || undefined,
-                            priceUsd: Number.isFinite(px) ? px : 0,
-                          }
-                        : axiomCoin
-                }
-                onLog={log}
-              />
-            </section>
-          </aside>
-
-          <div className="stage">
-            <section className="panel chart-panel">
-              {armed ? (
-                <Chart
-                  pool={axiomCoin?.pairAddress}
-                  token={addr}
-                  last={Number.isFinite(px) ? px : undefined}
-                  bornAt={axiomCoin?.createdAt}
-                />
-              ) : (
-                <div className="await-chart">Fable 5.1 is ready. Search a market to open the book</div>
-              )}
-              <HeroIntel
-                armed={armed}
-                symbol={symbol}
-                stock={Boolean(asset)}
-                halt={Boolean(quote?.isTradingHalt)}
-                coin={axiomCoin}
-                volume={axiomCoin?.volume24h ?? Number(quote?.dailyTradingVolume)}
-                liquidity={axiomCoin?.liquidityUsd ?? quote?.liquidityUsd}
-                holders={axiomCoin?.holders ?? Number(onchain?.holders_count)}
-              />
-            </section>
-
-            <section className="panel floor-panel">
-              <div className="floor-side">
-                <div className="tabs">
-                  <button className={tab === "STOCKS" ? "on" : ""} onClick={() => setTab("STOCKS")}>
-                    Stocks
-                  </button>
-                  <button className={tab === "PULSE" ? "on" : ""} onClick={() => setTab("PULSE")}>
-                    Pulse
-                  </button>
-                  <button className={tab === "CHAIN" ? "on" : ""} onClick={() => setTab("CHAIN")}>
-                    Blocks
-                  </button>
-                  <button className={tab === "BUBBLE" ? "on" : ""} onClick={() => setTab("BUBBLE")}>
-                    Bubble Map
-                  </button>
-                </div>
-                {tab === "BUBBLE" && (
-                  <BubbleMap
-                    token={armed ? addr : undefined}
-                    pool={armed ? axiomCoin?.pairAddress : undefined}
-                    symbol={armed ? symbol : undefined}
-                  />
-                )}
-                {tab === "PULSE" && <PulseHeat coins={launches} loading={pulseLoading} onPick={pickPulse} />}
-                {tab === "STOCKS" && (
-                  <StocksHeat assets={assets} quotes={quotes} corps={corpActions} onPick={(s) => select(s, "STOCKS")} />
-                )}
-                {tab === "CHAIN" && (
-                  <ChainMosaic blocks={blocks} stats={stats} tokens={chainTokens} onPick={(s) => select(s, "CHAIN")} />
-                )}
-              </div>
-              <div className="floor-tape">
-                <div className="hd">
-                  <span>
-                    <b>Flow</b> wallets
-                  </span>
-                  <span>open explorer</span>
-                </div>
-                <div className="tape-head">
-                  <span>time</span>
-                  <span>from → to</span>
-                  <span>amt</span>
-                </div>
-                <div className="tape">{tapeRows}</div>
-              </div>
-            </section>
-          </div>
+                if (coin) deskUrl.searchParams.set("mint", coin.address);
+                window.open(
+                  deskUrl.href,
+                  "_blank",
+                  "noopener,noreferrer",
+                );
+              }}
+              title="Keep charts and the live feed open in a browser tab"
+            >
+              Open desk ↗
+            </button>
+          )}
+          {onLeave && (
+            <button className="home-button" onClick={onLeave}>
+              House ↗
+            </button>
+          )}
         </div>
-
-        <footer className="deck-foot">
-          <div className="cli">
-            <div className="cli-out" ref={outRef}>
-              {logs.slice(-1).map((l, i) => (
-                <div key={i} className={l.k ?? ""}>
-                  [{l.t}] {l.s}
-                </div>
-              ))}
+      </header>
+      <div className="workspace-frame">
+        <Navigation
+          state={workspace.state}
+          open={openModule}
+          launcher={() => setLauncher(true)}
+        />
+        <div className="workspace-body">
+          <div
+            className="workspace-tabs"
+            role="tablist"
+            aria-label="Open workspace panels"
+          >
+            {workspace.state.open.map((id) => (
+              <div
+                key={id}
+                className={workspace.state.active === id ? "selected" : ""}
+              >
+                <button
+                  role="tab"
+                  aria-selected={workspace.state.active === id}
+                  onClick={() => openModule(id)}
+                >
+                  {MODULES.find((m) => m.id === id)?.title}
+                </button>
+                {id !== "terminal" && (
+                  <button
+                    aria-label={`Close ${MODULES.find((m) => m.id === id)?.title}`}
+                    onClick={() => workspace.close(id)}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {workspace.storageError && (
+            <p role="alert" className="data-note">
+              Local storage unavailable. Layout will not survive reload.
+            </p>
+          )}
+          {coin && (
+            <div className="workspace-context">
+              <span>
+                {coin.symbol} <small>{shortAddr(coin.address)} · Solana</small>
+              </span>
+              <div>
+                <button onClick={() => openModule("swap")}>Buy / Swap</button>
+                <button onClick={() => openModule("xray")}>Analyze</button>
+                <button onClick={() => openModule("astra")}>Ask Astra</button>
+              </div>
             </div>
-          </div>
-          <div className="status">
-            <span>
-              {res.w}×{res.h} · {addr ? shortAddr(addr) : "no address"}
-            </span>
-            <span>
-              Fable 5.1 · fastest · most accurate · gas{" "}
-              {stats ? `${stats.gas_prices.slow}/${stats.gas_prices.average}/${stats.gas_prices.fast}` : "—"}
-            </span>
-          </div>
-        </footer>
+          )}
+          <main
+            className={`sol-workspace${showChart && panel ? " with-pinned-panel" : ""}`}
+          >
+            <div className="sol-main">
+              {showChart && (
+                <section className="sol-chart-panel">
+                  {coin ? (
+                    <>
+                      <div className="sol-token-bar">
+                        <div className="token-identity">
+                          <TokenIcon coin={coin} />
+                          <div>
+                            <h1>
+                              {coin.symbol}
+                              <span>{coin.dex}</span>
+                            </h1>
+                            <button
+                              className="mint-copy"
+                              title={coin.address}
+                              onClick={() => {
+                                void navigator.clipboard
+                                  .writeText(coin.address)
+                                  .then(() => setCopied(true))
+                                  .catch(() => setCopied(false));
+                              }}
+                            >
+                              {copied
+                                ? "Copied mint ✓"
+                                : shortAddr(coin.address) + " ⧉"}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="token-price">
+                          <strong>
+                            {liveSpot ? "≈ " : ""}
+                            {fmtUsd(
+                              liveSpot?.price ?? coin.priceUsd,
+                              (liveSpot?.price ?? coin.priceUsd) < 1 ? 6 : 2,
+                            )}
+                          </strong>
+                          <small className="spot-price-label">
+                            {liveSpot
+                              ? `Pool spot · ${liveSpot.commitment}`
+                              : "DEX snapshot"}
+                          </small>
+                          <span
+                            className={(coin.change24h ?? 0) >= 0 ? "up" : "dn"}
+                          >
+                            {change(coin.change24h)} <small>24h</small>
+                          </span>
+                        </div>
+                        <div
+                          className={`token-metric${!prefs.showMetrics ? " pref-hidden" : ""}`}
+                        >
+                          <small>Market cap</small>
+                          <b>{fmtUsd(coin.mcap ?? coin.fdv)}</b>
+                        </div>
+                        <div
+                          className={`token-metric${!prefs.showMetrics ? " pref-hidden" : ""}`}
+                        >
+                          <small>Liquidity</small>
+                          <b>{fmtUsd(coin.liquidityUsd)}</b>
+                        </div>
+                        <div
+                          className={`token-metric${!prefs.showMetrics ? " pref-hidden" : ""}`}
+                        >
+                          <small>24h volume</small>
+                          <b>{fmtUsd(coin.volume24h)}</b>
+                        </div>
+                        <a
+                          className="token-explorer"
+                          href={`${EXPLORER}/token/${coin.address}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open mint on Solscan"
+                        >
+                          ↗
+                        </a>
+                      </div>
+                      <Chart
+                        key={coin.pairAddress + coin.address}
+                        pool={coin.pairAddress}
+                        token={coin.address}
+                        symbol={coin.symbol}
+                        priceUsd={coin.priceUsd}
+                        mcap={coin.mcap}
+                        onSpot={setLiveSpot}
+                      />
+                    </>
+                  ) : (
+                    <div className="sol-empty">
+                      <img
+                        className="terminal-empty-eye"
+                        src={`${import.meta.env.BASE_URL}favicon.png`}
+                        alt=""
+                        width={128}
+                        height={128}
+                      />
+                      <div className="empty-eyebrow">
+                        YOUR SOLANA TRADING DESK
+                      </div>
+                      <h1>Find your next market.</h1>
+                      <p>
+                        Search a token or paste its mint address.
+                        <br />
+                        Your chart comes first. Open tools when you need them.
+                      </p>
+                      <button
+                        className="primary-action"
+                        onClick={() => input.current?.focus()}
+                      >
+                        Search Solana tokens <kbd>/</kbd>
+                      </button>
+                      <div className="empty-tools">
+                        <button onClick={() => openModule("markets")}>
+                          Discover markets ↗
+                        </button>
+                        <button onClick={() => setLauncher(true)}>
+                          Explore tools ↗
+                        </button>
+                      </div>
+                      <div className="quick-markets">
+                        {markets.slice(0, 4).map((c) => (
+                          <button key={c.address} onClick={() => pick(c)}>
+                            <TokenIcon coin={c} />
+                            {c.symbol}
+                            <span
+                              className={(c.change24h ?? 0) >= 0 ? "up" : "dn"}
+                            >
+                              {change(c.change24h)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+              {panel && (
+                <section
+                  className={`module-panel ${showChart ? "pinned-panel" : ""}`}
+                  aria-label={MODULES.find((m) => m.id === panel)?.title}
+                >
+                  <div className="panel-controls">
+                    <b>{MODULES.find((m) => m.id === panel)?.title}</b>
+                    <div>
+                      <button
+                        aria-label="Move panel left"
+                        onClick={() =>
+                          workspace.setState((s) => {
+                            const ids = [...s.open];
+                            const i = ids.indexOf(panel);
+                            if (i > 1)
+                              [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]];
+                            return { ...s, open: ids };
+                          })
+                        }
+                      >
+                        ←
+                      </button>
+                      <button
+                        aria-label="Move panel right"
+                        onClick={() =>
+                          workspace.setState((s) => {
+                            const ids = [...s.open];
+                            const i = ids.indexOf(panel);
+                            if (i > 0 && i < ids.length - 1)
+                              [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]];
+                            return { ...s, open: ids };
+                          })
+                        }
+                      >
+                        →
+                      </button>
+                      <button onClick={() => workspace.pin(panel)}>
+                        {workspace.state.pinned.includes(panel)
+                          ? "Unpin"
+                          : "Pin"}
+                      </button>
+                      <button
+                        onClick={() =>
+                          workspace.setState((s) => ({
+                            ...s,
+                            maximized: !s.maximized,
+                          }))
+                        }
+                      >
+                        {workspace.state.maximized ? "Restore" : "Maximize"}
+                      </button>
+                      <button onClick={() => openModule("terminal")}>
+                        Back to Terminal
+                      </button>
+                      <button
+                        aria-label="Close panel"
+                        onClick={() => workspace.close(panel)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                  <Suspense
+                    fallback={<p className="data-note">Loading panel…</p>}
+                  >
+                    {[
+                      "markets",
+                      "new",
+                      "pulse",
+                      "trends",
+                      "holders",
+                      "flow",
+                      "swap",
+                      "network",
+                    ].includes(tab) ? (
+                      <section className="sol-floor">
+                        {["markets", "new", "trends"].includes(tab) && (
+                          <>
+                            {tab === "trends" && (
+                              <div className="tool-actions">
+                                <button
+                                  className={!socialTab ? "selected" : ""}
+                                  onClick={() => setSocialTab(false)}
+                                >
+                                  On-chain Trends
+                                </button>
+                                <button
+                                  className={socialTab ? "selected" : ""}
+                                  onClick={() => setSocialTab(true)}
+                                >
+                                  X Trends
+                                </button>
+                              </div>
+                            )}
+                            {tab === "trends" && socialTab ? (
+                              <div className="tool-empty">
+                                <h2>X provider not connected.</h2>
+                                <p>
+                                  No live social mentions or trending counts are
+                                  available.
+                                </p>
+                                <button onClick={() => openModule("kol")}>
+                                  Analyze pasted public text
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="market-table-head">
+                                  <span>
+                                    {tab === "new"
+                                      ? "Recently profiled tokens"
+                                      : "Discover markets · ranked by activity"}
+                                  </span>
+                                  {tab !== "new" && (
+                                    <select
+                                      aria-label="Sort markets"
+                                      value={sort}
+                                      onChange={(e) =>
+                                        setSort(e.target.value as typeof sort)
+                                      }
+                                    >
+                                      <option value="volume">
+                                        24h volume ↓
+                                      </option>
+                                      <option value="change">
+                                        24h change ↓
+                                      </option>
+                                      <option value="liquidity">
+                                        Liquidity ↓
+                                      </option>
+                                    </select>
+                                  )}
+                                </div>
+                                <div className="market-filters">
+                                  <input
+                                    aria-label="Filter markets"
+                                    placeholder="Filter name, ticker or mint…"
+                                    value={filter}
+                                    onChange={(e) => setFilter(e.target.value)}
+                                  />
+                                  <label>
+                                    <input
+                                      type="checkbox"
+                                      checked={watchOnly}
+                                      onChange={(e) =>
+                                        setWatchOnly(e.target.checked)
+                                      }
+                                    />{" "}
+                                    Watchlist only
+                                  </label>
+                                  <button
+                                    onClick={() => setFeedRetry((n) => n + 1)}
+                                  >
+                                    Refresh
+                                  </button>
+                                </div>
+                                {(tab !== "new" ? feedError : newError) && (
+                                  <p className="data-note">
+                                    {tab !== "new" ? feedError : newError}
+                                  </p>
+                                )}
+                                <div className="market-table-scroll">
+                                  <table className="market-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Watch</th>
+                                        <th>Token</th>
+                                        <th>Price</th>
+                                        <th>5m</th>
+                                        <th>1h</th>
+                                        <th>24h</th>
+                                        <th>Liquidity</th>
+                                        <th>24h volume</th>
+                                        <th>Age</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {rows.map((c) => (
+                                        <tr
+                                          key={c.address}
+                                          className={
+                                            coin?.address === c.address
+                                              ? "active"
+                                              : ""
+                                          }
+                                          onClick={() => pick(c)}
+                                        >
+                                          <td>
+                                            <button
+                                              aria-label={`${marketWatch.includes(c.address) ? "Unwatch" : "Watch"} ${c.symbol}`}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setMarketWatch((ws) =>
+                                                  ws.includes(c.address)
+                                                    ? ws.filter(
+                                                        (a) => a !== c.address,
+                                                      )
+                                                    : [...ws, c.address].slice(
+                                                        -100,
+                                                      ),
+                                                );
+                                              }}
+                                            >
+                                              {marketWatch.includes(c.address)
+                                                ? "●"
+                                                : "+"}
+                                            </button>
+                                          </td>
+                                          <td>
+                                            <button
+                                              className="market-name"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                pick(c);
+                                              }}
+                                            >
+                                              <TokenIcon coin={c} />
+                                              <span>
+                                                <b>{c.symbol}</b>
+                                                <small>
+                                                  {c.dex} ·{" "}
+                                                  {shortAddr(c.address)}
+                                                </small>
+                                              </span>
+                                            </button>
+                                          </td>
+                                          <td>{fmtUsd(c.priceUsd)}</td>
+                                          <td
+                                            className={
+                                              (c.change5m ?? 0) >= 0
+                                                ? "up"
+                                                : "dn"
+                                            }
+                                          >
+                                            {change(c.change5m)}
+                                          </td>
+                                          <td
+                                            className={
+                                              (c.change1h ?? 0) >= 0
+                                                ? "up"
+                                                : "dn"
+                                            }
+                                          >
+                                            {change(c.change1h)}
+                                          </td>
+                                          <td
+                                            className={
+                                              (c.change24h ?? 0) >= 0
+                                                ? "up"
+                                                : "dn"
+                                            }
+                                          >
+                                            {change(c.change24h)}
+                                          </td>
+                                          <td>{fmtUsd(c.liquidityUsd)}</td>
+                                          <td>{fmtUsd(c.volume24h)}</td>
+                                          <td>{ageLabel(c.createdAt)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  {!rows.length && (
+                                    <p className="data-note">
+                                      {(
+                                        tab === "new" ? newLoading : feedLoading
+                                      )
+                                        ? "Loading Solana pools…"
+                                        : "No markets available. Use search or retry."}
+                                    </p>
+                                  )}
+                                </div>
+                                <p className="data-note">
+                                  DEX Screener · Solana mainnet.{" "}
+                                  {tab === "new"
+                                    ? "Recently observed token profiles; pool age is shown when supplied by the source. This is not a complete list of new mints."
+                                    : "Ranked by observed DEX activity; no social trend claims."}
+                                </p>
+                              </>
+                            )}
+                          </>
+                        )}
+                        {tab === "pulse" && (
+                          <>
+                            <p className="data-note">
+                              DEX Screener · recently profiled Solana markets.{" "}
+                              {newError}
+                            </p>
+                            <PulseHeat
+                              coins={newCoins}
+                              loading={newLoading}
+                              onPick={pick}
+                            />
+                          </>
+                        )}
+                        {tab === "holders" && (
+                          <div className="holder-map">
+                            <BubbleMap
+                              token={coin?.address}
+                              pool={coin?.pairAddress}
+                              symbol={coin?.symbol}
+                            />
+                          </div>
+                        )}
+                        {tab === "flow" && (
+                          <div className="flow-tab">
+                            {!coin && (
+                              <p className="data-note">
+                                Select a token to open its transaction tape.
+                              </p>
+                            )}
+                            {tradeError && (
+                              <p className="data-note">{tradeError}</p>
+                            )}
+                            <table className="market-table">
+                              <thead>
+                                <tr>
+                                  <th>Time</th>
+                                  <th>Maker</th>
+                                  <th>Side</th>
+                                  <th>USD</th>
+                                  <th>Tokens</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {trades.map((t, i) => (
+                                  <tr key={t.hash + i}>
+                                    <td>
+                                      <a
+                                        href={`${EXPLORER}/tx/${t.hash}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        {new Date(
+                                          t.timestamp,
+                                        ).toLocaleTimeString()}{" "}
+                                        ↗
+                                      </a>
+                                    </td>
+                                    <td>
+                                      <a
+                                        href={`${EXPLORER}/account/${t.wallet}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        {shortAddr(t.wallet)}
+                                      </a>
+                                    </td>
+                                    <td>{t.side.toUpperCase()}</td>
+                                    <td>{fmtUsd(t.usd)}</td>
+                                    <td>{fmtQty(t.amount)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {coin && !trades.length && (
+                              <p className="data-note">
+                                {tradeLoading
+                                  ? "Loading trades…"
+                                  : "No recent trades returned."}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {tab === "swap" && (
+                          <div className="swap-tab">
+                            <WalletSwap
+                              key={coin?.address ?? "idle"}
+                              coin={coin}
+                            />
+                          </div>
+                        )}
+                        {tab === "network" && (
+                          <ChainMosaic
+                            stats={stats}
+                            blocks={blocks}
+                            error={networkError}
+                          />
+                        )}
+                      </section>
+                    ) : (
+                      <ToolHost
+                        key={panel}
+                        id={panel}
+                        selectedWallet={workspace.state.selectedWallet}
+                        selectWallet={(address) =>
+                          workspace.setState((s) => ({
+                            ...s,
+                            selectedWallet: address,
+                          }))
+                        }
+                        coin={coin}
+                        open={openModule}
+                        selectMint={(mint, target) =>
+                          void selectMint(mint, target)
+                        }
+                        reset={() => {
+                          selectionEpoch.current++;
+                          workspace.reset();
+                          setCoin(null);
+                        }}
+                        collapsed={workspace.state.collapsed}
+                        toggleNav={() =>
+                          workspace.setState((s) => ({
+                            ...s,
+                            collapsed: !s.collapsed,
+                          }))
+                        }
+                      />
+                    )}
+                  </Suspense>
+                </section>
+              )}
+            </div>
+          </main>
+        </div>
       </div>
+      {launcher && (
+        <Launcher onOpen={openModule} onClose={() => setLauncher(false)} />
+      )}
+      <footer className="sol-status">
+        <span>
+          <i />
+          SOLANA MAINNET
+        </span>
+        <span>
+          {quoteError ||
+            (updated
+              ? `Price updated ${new Date(updated).toLocaleTimeString()}`
+              : "Select a market to begin")}
+        </span>
+        <span>PART / ASTRA</span>
+      </footer>
     </div>
   );
 }

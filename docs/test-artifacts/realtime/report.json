@@ -1,0 +1,226 @@
+{
+  "at": "2026-10-16T12:24:32.580Z",
+  "results": [
+    {
+      "name": "website-stream",
+      "feed": "Streaming pool spot\n≈ $106.338 · 2093 ms since receipt · slot 457 636 553 · processed\nsolana-rpc.publicnode.com · Orca Whirlpool · USDC ≈ USD\nReconnect",
+      "sourceCandles": "500",
+      "measurements": [
+        {
+          "price": 106.32364290454863,
+          "slot": 457636503,
+          "domCommitMs": 4
+        },
+        {
+          "price": 106.32409658148931,
+          "slot": 457636506,
+          "domCommitMs": 2
+        },
+        {
+          "price": 106.32409658148931,
+          "slot": 457636512,
+          "domCommitMs": 8
+        },
+        {
+          "price": 106.3240583833419,
+          "slot": 457636527,
+          "domCommitMs": 9
+        },
+        {
+          "price": 106.33783168555075,
+          "slot": 457636553,
+          "domCommitMs": 1
+        }
+      ],
+      "distinctPrices": 4,
+      "notes": "domCommitMs measures browser receipt-to-DOM only; it excludes network/node delay and canvas paint."
+    },
+    {
+      "name": "website-holders",
+      "status": "20 owners loaded\nRugCheck · fetched 12:25:09 UTC",
+      "rows": 20,
+      "errors": []
+    },
+    {
+      "name": "extension-stream",
+      "feed": "Streaming pool spot\n≈ $106.389 · 3946 ms since receipt · slot 457 636 718 · processed\nsolana-rpc.publicnode.com · Orca Whirlpool · USDC ≈ USD\nReconnect",
+      "sourceCandles": "500",
+      "measurements": [
+        {
+          "price": 106.38935459629934,
+          "slot": 457636669,
+          "domCommitMs": 3
+        },
+        {
+          "price": 106.38933024912205,
+          "slot": 457636699,
+          "domCommitMs": 1
+        },
+        {
+          "price": 106.38932129527174,
+          "slot": 457636718,
+          "domCommitMs": 17
+        }
+      ],
+      "distinctPrices": 3,
+      "notes": "domCommitMs measures browser receipt-to-DOM only; it excludes network/node delay and canvas paint."
+    },
+    {
+      "name": "extension-csp",
+      "origin": "null",
+      "width": 400,
+      "version": "1.3.0"
+    },
+    {
+      "name": "extension-wide-desk",
+      "compact": 0,
+      "width": 1440,
+      "viewport": 1440
+    },
+    {
+      "name": "extension-shared-preferences",
+      "popupTheme": "graphite"
+    },
+    {
+      "name": "extension-module",
+      "title": "Markets",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Pulse",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "New Tokens",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Trend Radar",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Blocks",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Bubble Map",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Flow",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Token X-Ray",
+      "heading": [
+        "SOL / Token X-Ray"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Wallet Watch",
+      "heading": [
+        "Wallet Watch"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Smart Money",
+      "heading": [
+        "Smart Money"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Exit Simulator",
+      "heading": [
+        "Exit Simulator"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Buy / Swap",
+      "heading": [],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Astra",
+      "heading": [
+        "Astra"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "KOL Analyzer",
+      "heading": [
+        "KOL Analyzer"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Launchpad",
+      "heading": [
+        "Launchpad"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Tweet to Token",
+      "heading": [
+        "Tweet to Token"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Website Builder",
+      "heading": [
+        "Website Builder"
+      ],
+      "errors": []
+    },
+    {
+      "name": "extension-module",
+      "title": "Settings",
+      "heading": [
+        "Your desk. Your layout."
+      ],
+      "errors": [
+        "Astra server is unavailable. Open Settings to check the connection."
+      ]
+    },
+    {
+      "name": "extension-wallet",
+      "guidance": true,
+      "transactionsSent": 0
+    },
+    {
+      "name": "extension-holders",
+      "status": "20 owners loaded\nRugCheck · fetched 12:25:52 UTC",
+      "rows": 20
+    }
+  ],
+  "errors": []
+}
